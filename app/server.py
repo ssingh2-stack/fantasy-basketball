@@ -36,11 +36,16 @@ def refresh_data() -> None:
         try:
             cfg = load_config()
             try:
-                fetch_stats(cfg)
+                errors = fetch_stats(cfg)
             except RateLimited as e:
                 if not any(RAW_DIR.glob("totals_*.csv")):
                     raise
                 print(f"  {e} Using the stats already on disk.")
+                errors = []
+            if not any(RAW_DIR.glob("totals_*.csv")):
+                # Say why on the page, not just in the logs.
+                raise RuntimeError(f"Could not download any season stats into {RAW_DIR}. "
+                                   + " | ".join(errors or ["no error recorded"]))
             status["message"] = "Building projections"
             write_projections(cfg)
             status.update(state="ready", message="", updated_at=datetime.now(timezone.utc).isoformat())

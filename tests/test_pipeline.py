@@ -458,7 +458,9 @@ def test_refresh_shows_rankings_before_rosters(tmp_path, monkeypatch):
     """Projections are written right after the season stats, before the slow roster fetch."""
     from app import server
     order = []
-    monkeypatch.setattr(server, "fetch_stats", lambda cfg: order.append("stats"))
+    (tmp_path / "totals_2026.csv").write_text("bbref_id\n")
+    monkeypatch.setattr(server, "RAW_DIR", tmp_path)
+    monkeypatch.setattr(server, "fetch_stats", lambda cfg: order.append("stats") or [])
     monkeypatch.setattr(server, "write_projections", lambda cfg=None: order.append(f"project:{server.status['state']}"))
     monkeypatch.setattr(server, "fetch_extras", lambda cfg: order.append(f"extras:{server.status['state']}"))
     server.refresh_data()
@@ -475,4 +477,14 @@ def test_refresh_rate_limited_with_no_data_reports_error(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "OUT_PATH", tmp_path / "projections.json")
     server.refresh_data()
     assert server.status["state"] == "error" and "rate-limiting" in server.status["message"]
+    server.status.update(state="idle", message="")
+
+
+def test_refresh_reports_why_downloads_failed(tmp_path, monkeypatch):
+    from app import server
+    monkeypatch.setattr(server, "fetch_stats", lambda cfg: ["2026: HTTPError: 403 Client Error: Forbidden"])
+    monkeypatch.setattr(server, "RAW_DIR", tmp_path)
+    monkeypatch.setattr(server, "OUT_PATH", tmp_path / "projections.json")
+    server.refresh_data()
+    assert server.status["state"] == "error" and "403 Client Error" in server.status["message"]
     server.status.update(state="idle", message="")

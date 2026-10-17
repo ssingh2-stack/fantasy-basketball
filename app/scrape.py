@@ -117,7 +117,9 @@ def fetch_season(season: int, force: bool = False) -> Path:
     return out
 
 
-def fetch_seasons(seasons: list[int], force: bool = False) -> None:
+def fetch_seasons(seasons: list[int], force: bool = False) -> list[str]:
+    """Download each season; returns a description of every failure (empty = all fine)."""
+    errors = []
     for i, season in enumerate(seasons):
         if i:
             time.sleep(4)
@@ -129,6 +131,8 @@ def fetch_seasons(seasons: list[int], force: bool = False) -> None:
         except Exception as e:
             # Keep going: older seasons may already be on disk (or committed to the repo).
             print(f"  failed to fetch {season}: {e}")
+            errors.append(f"{season}: {type(e).__name__}: {e}")
+    return errors
 
 
 # Basketball-Reference's own team codes, used in roster page URLs.
@@ -240,13 +244,14 @@ def load_schedule(season: int) -> dict[str, list[str]]:
     return json.loads(path.read_text()) if path.exists() else {}
 
 
-def fetch_stats(cfg: dict, force: bool = False) -> None:
+def fetch_stats(cfg: dict, force: bool = False) -> list[str]:
     """Season totals: the history seasons (cached) and the in-progress season (always refreshed).
-    Raises RateLimited if Basketball-Reference blocks us."""
+    Returns download errors; raises RateLimited if Basketball-Reference blocks us."""
+    errors = []
     if cfg.get("include_current_season"):
-        fetch_seasons([cfg["season"]], force=True)
+        errors += fetch_seasons([cfg["season"]], force=True)
         time.sleep(4)
-    fetch_seasons(cfg["history"], force=force)
+    return errors + fetch_seasons(cfg["history"], force=force)
 
 
 def fetch_extras(cfg: dict) -> None:
