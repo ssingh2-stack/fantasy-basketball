@@ -1,0 +1,18 @@
+{
+  "season": 2027,
+  "history": [2026, 2025, 2024],
+  "history_weights": [1.0, 0.6, 0.4],
+  "include_current_season": true,
+  "games_remaining": 82,
+  "league": {
+    "platform": "espn",
+    "league_id": "",
+    "espn_s2": "",
+    "swid": ""
+  },
+  "yahoo": {
+    "client_id": "",
+    "client_secret": "",
+    "league_id": ""
+  }
+}

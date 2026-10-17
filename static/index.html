@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fantasy Hoops Rankings</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏀</text></svg>">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Fantasy Hoops <span id="season"></span></h1>
+    <div class="league-status" id="league-status">No league synced</div>
+    <div class="actions">
+      <label class="toggle" title="Re-sync the league every 30 seconds while drafting">
+        <input type="checkbox" id="auto-sync"> Live draft
+      </label>
+      <button id="btn-yahoo" hidden>Connect Yahoo</button>
+      <button id="btn-sync">Sync league</button>
+      <button id="btn-project" title="Re-run the model after editing data/overrides.csv">Rebuild projections</button>
+    </div>
+  </header>
+
+  <section class="panel">
+    <div class="filters">
+      <label>Show
+        <select id="f-show">
+          <option value="50">Top 50</option><option value="100">Top 100</option>
+          <option value="150">Top 150</option><option value="200" selected>Top 200</option>
+          <option value="300">Top 300</option><option value="9999">All</option>
+        </select>
+      </label>
+      <label>Min GP
+        <select id="f-mingp"><option>0</option><option>20</option><option>40</option><option>55</option><option>65</option></select>
+      </label>
+      <label>Position
+        <select id="f-pos">
+          <option value="">All</option><option>PG</option><option>SG</option><option>SF</option>
+          <option>PF</option><option>C</option><option value="G">G</option><option value="F">F</option>
+        </select>
+      </label>
+      <label>Team <select id="f-team"><option value="">All</option></select></label>
+      <label>Owner <select id="f-owner"><option value="">All</option><option value="__avail">Available</option></select></label>
+      <label>Based on
+        <select id="f-mode"><option value="avg">Averages</option><option value="tot">Totals</option></select>
+      </label>
+      <label>League size
+        <select id="f-teams"><option>8</option><option>10</option><option selected>12</option><option>14</option><option>16</option></select>
+      </label>
+      <label>Roster spots
+        <select id="f-roster"><option>10</option><option>12</option><option selected>13</option><option>14</option><option>15</option></select>
+      </label>
+      <label>GP penalty
+        <select id="f-gppen"><option value="0">Off</option><option value="0.1">10%</option><option value="0.2" selected>20%</option><option value="0.35">35%</option><option value="0.5">50%</option></select>
+      </label>
+      <label class="grow">Search <input id="f-search" type="search" placeholder="Player name"></label>
+    </div>
+
+    <h2>Categories &amp; multipliers</h2>
+    <div class="cats" id="cats"></div>
+
+    <div class="legend">
+      <span>Performance:</span>
+      <span class="z elite">Elite</span><span class="z vgood">Very good</span><span class="z good">Good</span>
+      <span class="z avg">Average</span><span class="z below">Below avg</span><span class="z bad">Not good</span>
+      <label class="toggle"><input type="checkbox" id="f-hide-taken"> Hide taken players</label>
+    </div>
+  </section>
+
+  <details id="my-team" class="panel" hidden>
+    <summary>Team category strength</summary>
+    <div class="body"></div>
+  </details>
+
+  <details id="unmatched" class="panel" hidden>
+    <summary></summary>
+    <p>These players are rostered or have an ADP in your league but have no projection (usually rookies).
+      Add a row for each to <code>data/overrides.csv</code> with minutes and per-game stats, then click Rebuild projections.</p>
+    <ul></ul>
+  </details>
+
+  <div id="message" class="message" hidden></div>
+
+  <div class="table-wrap">
+    <table id="table">
+      <thead></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <dialog id="yahoo-dialog">
+    <form method="dialog">
+      <h3>Connect Yahoo</h3>
+      <ol>
+        <li><a id="yahoo-link" target="_blank" rel="noopener">Open Yahoo and approve access</a></li>
+        <li>Paste the code Yahoo shows you:</li>
+      </ol>
+      <input id="yahoo-code" placeholder="Authorization code" autocomplete="off">
+      <menu><button value="cancel">Cancel</button><button id="yahoo-submit" value="ok">Connect</button></menu>
+    </form>
+  </dialog>
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

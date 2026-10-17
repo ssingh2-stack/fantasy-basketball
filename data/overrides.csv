@@ -1,0 +1,14 @@
+# Manual adjustments applied on top of the model. Lines starting with # are ignored.
+# Leave a column blank to keep the model's value.
+#   team        new team after a trade/signing (e.g. LAL)
+#   pos         fantasy positions, e.g. PG,SG
+#   mpg         expected minutes per game (counting stats rescale with minutes)
+#   usage_mult  multiplier on all counting stats for a bigger/smaller role (1.10 = +10%)
+#   gp          expected games played (replaces the model's estimate)
+#   games_out   games expected to miss from a known injury (subtracted from gp)
+#   fgm..pts    per-game stat overrides; needed for rookies or players with no NBA history
+# Example rows (remove the leading # to use them):
+# Some Player,BOS,,34,1.08,,,,,,,,,,,,,,,Traded to bigger role
+# Injured Guy,,,,,,20,,,,,,,,,,,,,Out until late November
+# Top Rookie,WAS,SF,28,,,,7.0,15.5,1.5,4.5,3.0,4.0,1.5,4.0,2.5,1.0,0.6,2.5,18.5,Rookie projection
+player,team,pos,mpg,usage_mult,gp,games_out,fgm,fga,fg3m,fg3a,ftm,fta,oreb,dreb,ast,stl,blk,tov,pts,note
