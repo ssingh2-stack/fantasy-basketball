@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from .config import DATA_DIR, ROOT, load_config
 from .leagues import espn, yahoo
 from .project import OUT_PATH, write_projections
-from .scrape import RAW_DIR, RateLimited, fetch_extras, fetch_stats, load_schedule
+from .scrape import RAW_DIR, RateLimited, fetch_extras, fetch_stats, load_schedule, seed_raw_dir
 
 LEAGUE_PATH = DATA_DIR / "league.json"
 # Hours between automatic data refreshes (in-season stats change daily); 0 disables.
@@ -35,6 +35,7 @@ def refresh_data() -> None:
         status.update(state="building", message="Downloading season stats from Basketball-Reference")
         try:
             cfg = load_config()
+            seed_raw_dir()
             have_history = lambda: any((RAW_DIR / f"totals_{s}.csv").exists() for s in cfg["history"])  # noqa: E731
             try:
                 errors = fetch_stats(cfg)
@@ -45,8 +46,9 @@ def refresh_data() -> None:
                 errors = []
             if not have_history():
                 # The model needs at least one past season. Say why on the page, not just in the logs.
-                raise RuntimeError(f"Could not download past seasons {cfg['history']} into {RAW_DIR}. "
-                                   + " | ".join(errors or ["no error recorded"]))
+                raise RuntimeError(f"Could not download past seasons {cfg['history']} into {RAW_DIR}, and "
+                                   "no committed copies were found in data/seed (run the fetch-data GitHub "
+                                   "Action). " + " | ".join(errors or ["no error recorded"]))
             status["message"] = "Building projections"
             write_projections(cfg)
             status.update(state="ready", message="", updated_at=datetime.now(timezone.utc).isoformat())

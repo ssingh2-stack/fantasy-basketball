@@ -28,9 +28,12 @@ League sync is optional. Its buttons stay hidden until a league is configured. O
 settings in a `FANTASY_CONFIG` env var as JSON (same shape as `config.json`), e.g.
 `{"league": {"platform": "espn", "league_id": "12345"}}`.
 
-If Basketball-Reference blocks Railway's servers (check the deploy logs for `failed to fetch`),
-run `python -m app.cli fetch` on your own computer and commit the files in `data/raw/`.
-The server only re-downloads the in-progress season, so it will use the committed history.
+Basketball-Reference blocks some hosting providers (Railway got `403 Forbidden`). The
+**Fetch data** GitHub Action (`.github/workflows/fetch-data.yml`) downloads the stats, rosters
+and schedule daily from GitHub's servers and commits them to `data/seed/`. The app copies those
+in at startup, and each commit triggers a Railway redeploy with fresh data. Run it on demand from
+the repo's **Actions** tab → Fetch data → Run workflow. If GitHub gets blocked too, run
+`FANTASY_RAW_DIR=data/seed python -m app.cli fetch` on your own computer and commit `data/seed/`.
 
 ## How projections work (`app/project.py`)
 

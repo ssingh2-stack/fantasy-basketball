@@ -5,6 +5,8 @@ Basketball-Reference rate-limits to ~20 requests/minute, so we sleep between pag
 """
 import csv
 import json
+import os
+import shutil
 import time
 from pathlib import Path
 
@@ -13,7 +15,11 @@ from lxml import html
 
 from .names import norm_team
 
-RAW_DIR = Path(__file__).resolve().parent.parent / "data" / "raw"
+ROOT = Path(__file__).resolve().parent.parent
+RAW_DIR = Path(os.environ.get("FANTASY_RAW_DIR") or ROOT / "data" / "raw")
+# Stats committed to the repo (by the fetch-data GitHub Action), for hosts that
+# Basketball-Reference blocks. Copied into RAW_DIR at startup.
+SEED_DIR = ROOT / "data" / "seed"
 URL = "https://www.basketball-reference.com/leagues/NBA_{season}_totals.html"
 HEADERS = {"User-Agent": "Mozilla/5.0 (fantasy-hoops projections; personal use)"}
 
@@ -242,6 +248,23 @@ def fetch_schedule(season: int) -> Path:
 def load_schedule(season: int) -> dict[str, list[str]]:
     path = RAW_DIR / f"schedule_{season}.json"
     return json.loads(path.read_text()) if path.exists() else {}
+
+
+def seed_raw_dir() -> int:
+    """Copy committed stats from data/seed into RAW_DIR. The seed files are refreshed daily by
+    the GitHub Action, so they win over older copies (a volume may hold files from past deploys).
+    Returns how many files were copied."""
+    if not SEED_DIR.is_dir() or SEED_DIR.resolve() == RAW_DIR.resolve():
+        return 0
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for f in SEED_DIR.iterdir():
+        if f.suffix in (".csv", ".json"):
+            shutil.copyfile(f, RAW_DIR / f.name)
+            copied += 1
+    if copied:
+        print(f"Copied {copied} committed stats files from {SEED_DIR.name}/ into {RAW_DIR}")
+    return copied
 
 
 def fetch_stats(cfg: dict, force: bool = False) -> list[str]:

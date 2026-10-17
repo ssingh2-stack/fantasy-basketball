@@ -501,3 +501,17 @@ def test_refresh_with_only_current_season_reports_history_errors(tmp_path, monke
     assert "Could not download past seasons" in server.status["message"]
     assert "403 Client Error" in server.status["message"]
     server.status.update(state="idle", message="")
+
+
+def test_seed_files_are_copied_into_raw_dir(tmp_path, monkeypatch):
+    seed, raw = tmp_path / "seed", tmp_path / "raw"
+    seed.mkdir()
+    (seed / "totals_2026.csv").write_text("bbref_id\nnew\n")
+    (seed / ".gitkeep").write_text("")
+    raw.mkdir()
+    (raw / "totals_2026.csv").write_text("bbref_id\nold\n")  # e.g. a stale copy on a volume
+    monkeypatch.setattr(scrape, "SEED_DIR", seed)
+    monkeypatch.setattr(scrape, "RAW_DIR", raw)
+    assert scrape.seed_raw_dir() == 1
+    assert (raw / "totals_2026.csv").read_text() == "bbref_id\nnew\n"
+    assert not (raw / ".gitkeep").exists()
