@@ -488,3 +488,16 @@ def test_refresh_reports_why_downloads_failed(tmp_path, monkeypatch):
     server.refresh_data()
     assert server.status["state"] == "error" and "403 Client Error" in server.status["message"]
     server.status.update(state="idle", message="")
+
+
+def test_refresh_with_only_current_season_reports_history_errors(tmp_path, monkeypatch):
+    """Opening night: the in-progress season downloads but past seasons fail."""
+    from app import server
+    (tmp_path / "totals_2027.csv").write_text("bbref_id\n")
+    monkeypatch.setattr(server, "fetch_stats", lambda cfg: ["2026: HTTPError: 403 Client Error: Forbidden"])
+    monkeypatch.setattr(server, "RAW_DIR", tmp_path)
+    monkeypatch.setattr(server, "OUT_PATH", tmp_path / "projections.json")
+    server.refresh_data()
+    assert "Could not download past seasons" in server.status["message"]
+    assert "403 Client Error" in server.status["message"]
+    server.status.update(state="idle", message="")

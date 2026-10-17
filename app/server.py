@@ -35,16 +35,17 @@ def refresh_data() -> None:
         status.update(state="building", message="Downloading season stats from Basketball-Reference")
         try:
             cfg = load_config()
+            have_history = lambda: any((RAW_DIR / f"totals_{s}.csv").exists() for s in cfg["history"])  # noqa: E731
             try:
                 errors = fetch_stats(cfg)
             except RateLimited as e:
-                if not any(RAW_DIR.glob("totals_*.csv")):
+                if not have_history():
                     raise
                 print(f"  {e} Using the stats already on disk.")
                 errors = []
-            if not any(RAW_DIR.glob("totals_*.csv")):
-                # Say why on the page, not just in the logs.
-                raise RuntimeError(f"Could not download any season stats into {RAW_DIR}. "
+            if not have_history():
+                # The model needs at least one past season. Say why on the page, not just in the logs.
+                raise RuntimeError(f"Could not download past seasons {cfg['history']} into {RAW_DIR}. "
                                    + " | ".join(errors or ["no error recorded"]))
             status["message"] = "Building projections"
             write_projections(cfg)
