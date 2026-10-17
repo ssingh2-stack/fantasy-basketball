@@ -113,9 +113,72 @@ def fetch_seasons(seasons: list[int], force: bool = False) -> None:
             print(f"  failed to fetch {season}: {e}")
 
 
+# Basketball-Reference's own team codes, used in roster page URLs.
+BBREF_TEAMS = ["ATL", "BOS", "BRK", "CHI", "CHO", "CLE", "DAL", "DEN", "DET", "GSW", "HOU", "IND",
+               "LAC", "LAL", "MEM", "MIA", "MIL", "MIN", "NOP", "NYK", "OKC", "ORL", "PHI", "PHO",
+               "POR", "SAC", "SAS", "TOR", "UTA", "WAS"]
+ROSTER_URL = "https://www.basketball-reference.com/teams/{team}/{season}.html"
+
+
+def parse_roster(page: str) -> list[dict]:
+    """Players on a team page's roster table: bbref_id and name."""
+    tree = html.fromstring(page)
+    try:
+        table = tree.get_element_by_id("roster")
+    except KeyError:
+        return []
+    players = []
+    for cell in table.iter("td", "th"):
+        if cell.get("data-stat") == "player" and cell.get("data-append-csv"):
+            name = cell.text_content().replace("(TW)", "").strip()
+            players.append({"bbref_id": cell.get("data-append-csv"), "name": name})
+    return players
+
+
+def fetch_rosters(season: int) -> Path:
+    """Current rosters for every team, so offseason trades and signings are picked up."""
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    out = RAW_DIR / f"rosters_{season}.csv"
+    rows = []
+    print(f"Fetching {season - 1}-{str(season)[2:]} rosters")
+    for i, team in enumerate(BBREF_TEAMS):
+        if i:
+            time.sleep(3.5)
+        try:
+            resp = requests.get(ROSTER_URL.format(team=team, season=season), headers=HEADERS, timeout=30)
+            resp.raise_for_status()
+            players = parse_roster(resp.content.decode("utf-8", errors="replace"))
+        except Exception as e:
+            print(f"  failed to fetch {team} roster: {e}")
+            continue
+        rows += [{**p, "team": norm_team(team)} for p in players]
+    if len({r["team"] for r in rows}) < len(BBREF_TEAMS):
+        print(f"  only got {len({r['team'] for r in rows})} rosters; keeping any previous file")
+        if out.exists():
+            return out
+    with out.open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=["bbref_id", "name", "team"])
+        w.writeheader()
+        w.writerows(rows)
+    print(f"  saved {len(rows)} rostered players")
+    return out
+
+
+def load_rosters(season: int) -> dict[str, str]:
+    """bbref_id -> current team, or {} if rosters haven't been fetched."""
+    path = RAW_DIR / f"rosters_{season}.csv"
+    if not path.exists():
+        return {}
+    with path.open() as f:
+        return {r["bbref_id"]: r["team"] for r in csv.DictReader(f)}
+
+
 def fetch_all(cfg: dict, force: bool = False) -> None:
-    """Download the history seasons (cached) and the in-progress season (always refreshed)."""
+    """Download the history seasons (cached), plus the in-progress season and current
+    rosters (always refreshed, since both change daily)."""
     if cfg.get("include_current_season"):
         fetch_seasons([cfg["season"]], force=True)
         time.sleep(4)
     fetch_seasons(cfg["history"], force=force)
+    time.sleep(4)
+    fetch_rosters(cfg["season"])

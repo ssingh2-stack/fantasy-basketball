@@ -75,6 +75,7 @@ def raw(tmp_path, monkeypatch):
     raw = tmp_path / "raw"
     raw.mkdir()
     monkeypatch.setattr(project, "RAW_DIR", raw)
+    monkeypatch.setattr(scrape, "RAW_DIR", raw)  # rosters are read through scrape
     monkeypatch.setattr(project, "OVERRIDES_PATH", tmp_path / "overrides.csv")
     filler = [line(f"fill{i}", f"Filler {i}", "ATL", 26, 70, 2000) for i in range(20)]
     write_season(raw, 2026, filler + [
@@ -292,3 +293,82 @@ def test_merge_attaches_league_data():
     assert (a["team"], a["prev_team"], a["pos"], a["owner"], a["adp"]) == ("LAL", "BOS", "SF,PF", "3", 12.0)
     assert b["team"] == "MIA" and "prev_team" not in b  # manual override wins
     assert out["unmatched"] == [{"name": "Rookie", "team": "WAS", "adp": 40.0}]
+
+
+# ---------- per-stat regression, rosters, minutes budget ----------
+
+def test_hot_three_point_season_on_low_volume_is_tempered(raw):
+    """A 50% 3-point season on 40 attempts should project well below 50%; FT% regresses less."""
+    hot = line("hot01", "Hot Shooter", "ORL", 25, 60, 1200)
+    hot.update(fg3m=20, fg3a=40, ftm=90, fta=100)
+    hot["pts"] = round(2 * hot["fgm"] + hot["fg3m"] + hot["ftm"], 1)
+    rows = list(csv.DictReader((raw / "raw" / "totals_2026.csv").open()))
+    write_season(raw / "raw", 2026, rows + [hot])
+    p = by_name(project.build_projections(cfg()))["Hot Shooter"]
+    assert 0.36 < p["fg3_pct"] < 0.42
+    assert p["ft_pct"] > 0.82  # 90% on 100 FTs stays clearly above average
+    assert p["pts"] == pytest.approx(2 * p["fgm"] + p["fg3m"] + p["ftm"], rel=1e-3)
+
+
+ROSTER_HTML = """<table id="roster"><tbody>
+<tr><td data-stat="number">1</td><td data-stat="player" data-append-csv="star01"><a>Star Player</a></td></tr>
+<tr><td data-stat="player" data-append-csv="rook01"><a>Rookie Guy</a> (TW)</td></tr>
+</tbody></table>"""
+
+
+def test_parse_roster():
+    assert scrape.parse_roster(ROSTER_HTML) == [
+        {"bbref_id": "star01", "name": "Star Player"}, {"bbref_id": "rook01", "name": "Rookie Guy"}]
+    assert scrape.parse_roster("<html><body>no roster</body></html>") == []
+
+
+def write_rosters(raw, assignments):
+    teams = ["ATL", "BOS", "BKN", "CHA", "CHI", "CLE", "DAL", "DEN", "DET", "GSW", "HOU", "IND", "LAC", "LAL",
+             "MEM", "MIA", "MIL", "MIN", "NOP", "NYK", "OKC", "ORL", "PHI", "PHX", "POR", "SAC", "SAS", "TOR",
+             "UTA", "WAS"]
+    rows = [{"bbref_id": f"filler-{t}", "name": f"Filler {t}", "team": t} for t in teams]
+    rows += [{"bbref_id": pid, "name": pid, "team": team} for pid, team in assignments.items()]
+    with (raw / "raw" / "rosters_2027.csv").open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=["bbref_id", "name", "team"])
+        w.writeheader()
+        w.writerows(rows)
+
+
+def test_rosters_move_players_and_drop_free_agents(raw):
+    on_team = {f"fill{i}": "ATL" for i in range(20)}
+    write_rosters(raw, {**on_team, "star01": "MIA", "young01": "OKC", "hurt01": "LAL"})
+    ps = by_name(project.build_projections(cfg()))
+    assert ps["Star Player"]["team"] == "MIA" and ps["Star Player"]["prev_team"] == "DEN"
+    assert "prev_team" not in ps["Young Riser"]
+    assert "Cameo Guy" not in ps  # not on any roster -> unsigned
+
+
+def test_partial_rosters_are_ignored(raw):
+    with (raw / "raw" / "rosters_2027.csv").open("w", newline="") as f:
+        f.write("bbref_id,name,team\nstar01,Star Player,MIA\n")
+    ps = by_name(project.build_projections(cfg()))
+    assert ps["Star Player"]["team"] == "DEN" and "Cameo Guy" in ps
+
+
+def test_team_minutes_budget_squeezes_bench_most():
+    def player(name, mpg, locked=False):
+        p = {c: mpg / 2 for c in project.COUNTING}
+        p.update(name=name, team="BOS", mpg=mpg, gp=82, mpg_locked=locked)
+        return p
+    roster = [player("Star", 36), player("Starter", 32), player("Starter2", 30), player("Starter3", 30),
+              player("Starter4", 28), player("Bench", 22), player("Bench2", 20), player("Bench3", 18),
+              player("Deep", 14), player("Signed Star", 34, locked=True)]  # 264 minutes
+    before = {p["name"]: p["mpg"] for p in roster}
+    project.apply_team_minutes(roster, 82)
+    after = {p["name"]: p["mpg"] for p in roster}
+    assert sum(after.values()) == pytest.approx(240, abs=0.5)
+    assert after["Signed Star"] == 34  # hand-set minutes are untouched
+    assert before["Star"] - after["Star"] < before["Deep"] - after["Deep"]
+    star = next(p for p in roster if p["name"] == "Star")
+    assert star["pts"] == pytest.approx(after["Star"] / 2)  # stats scale with minutes
+
+
+def test_team_under_budget_is_untouched():
+    roster = [{**{c: 1.0 for c in project.COUNTING}, "name": "A", "team": "BOS", "mpg": 30, "gp": 82}]
+    project.apply_team_minutes(roster, 82)
+    assert roster[0]["mpg"] == 30
