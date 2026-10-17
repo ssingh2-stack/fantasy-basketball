@@ -4,6 +4,7 @@ Seasons are named by the year they end in: 2026 = the 2025-26 season.
 Basketball-Reference rate-limits to ~20 requests/minute, so we sleep between pages.
 """
 import csv
+import json
 import time
 from pathlib import Path
 
@@ -173,6 +174,52 @@ def load_rosters(season: int) -> dict[str, str]:
         return {r["bbref_id"]: r["team"] for r in csv.DictReader(f)}
 
 
+SCHEDULE_URL = "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json"
+
+
+def parse_schedule(payload: dict) -> dict[str, list[str]]:
+    """team -> sorted list of regular-season game dates (YYYY-MM-DD, US Eastern)."""
+    games: dict[str, set[str]] = {}
+    for day in payload.get("leagueSchedule", {}).get("gameDates", []):
+        for g in day.get("games", []):
+            # Regular-season game IDs start with 002 (001 = preseason, 004 = playoffs).
+            if not str(g.get("gameId", "")).startswith("002"):
+                continue
+            date = (g.get("gameDateEst") or g.get("gameDateTimeEst") or "")[:10]
+            for side in ("homeTeam", "awayTeam"):
+                team = norm_team((g.get(side) or {}).get("teamTricode", ""))
+                if team and date:
+                    games.setdefault(team, set()).add(date)
+    return {team: sorted(dates) for team, dates in games.items()}
+
+
+def fetch_schedule(season: int) -> Path:
+    """The NBA's published schedule, for fantasy-playoff games per team."""
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    out = RAW_DIR / f"schedule_{season}.json"
+    print("Fetching NBA schedule")
+    try:
+        resp = requests.get(SCHEDULE_URL, headers=HEADERS, timeout=60)
+        resp.raise_for_status()
+        payload = resp.json()
+        year = str(payload.get("leagueSchedule", {}).get("seasonYear", ""))
+        if not year.endswith(str(season)[2:]):
+            print(f"  schedule is for {year!r}, not {season - 1}-{str(season)[2:]}; skipping")
+            return out
+        schedule = parse_schedule(payload)
+    except Exception as e:
+        print(f"  failed to fetch schedule: {e}")
+        return out
+    out.write_text(json.dumps(schedule))
+    print(f"  saved schedule for {len(schedule)} teams")
+    return out
+
+
+def load_schedule(season: int) -> dict[str, list[str]]:
+    path = RAW_DIR / f"schedule_{season}.json"
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
 def fetch_all(cfg: dict, force: bool = False) -> None:
     """Download the history seasons (cached), plus the in-progress season and current
     rosters (always refreshed, since both change daily)."""
@@ -182,3 +229,4 @@ def fetch_all(cfg: dict, force: bool = False) -> None:
     fetch_seasons(cfg["history"], force=force)
     time.sleep(4)
     fetch_rosters(cfg["season"])
+    fetch_schedule(cfg["season"])

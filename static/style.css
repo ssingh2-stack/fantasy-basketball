@@ -84,6 +84,7 @@ td.check input { cursor: pointer; }
 .badge.new { background: #2d5aa8; }
 .badge.ovr { background: #6b4fa8; }
 .badge.rookie { background: #8a6d1a; }
+.badge.boost { background: var(--vgood); }
 .adp-diff.pos { color: #6fd17a; }
 .adp-diff.neg { color: #e0857f; }
 

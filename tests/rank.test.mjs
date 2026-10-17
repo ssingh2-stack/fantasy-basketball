@@ -71,3 +71,29 @@ test('tiers break on value gaps and long runs', async () => {
   assert.deepEqual(players.slice(0, 5).map((p) => p.tier), [1, 1, 1, 2, 2]);
   assert.equal(players.at(-1).tier, 3); // the long flat run is split after 12
 });
+
+test('playoff windows end on the last Sunday and count team games', async () => {
+  const { playoffWindows, gamesInWindow } = await import('../static/rank.js');
+  const schedule = { BOS: ['2027-03-22', '2027-03-24', '2027-04-10', '2027-04-11'], NYK: ['2027-03-23', '2027-04-11'] };
+  const [w1, w2] = playoffWindows(schedule);
+  assert.deepEqual(w1, { start: '2027-03-22', end: '2027-04-11' }); // Apr 11 2027 is a Sunday
+  assert.deepEqual(w2, { start: '2027-03-15', end: '2027-04-04' });
+  assert.equal(gamesInWindow(schedule.BOS, w1.start, w1.end), 4);
+  assert.equal(gamesInWindow(schedule.BOS, w2.start, w2.end), 2);
+});
+
+test('playoff weight rewards playoff games and penalizes late-season risk', async () => {
+  const { applyPlayoffWeight } = await import('../static/rank.js');
+  const schedule = { BOS: ['2027-03-22', '2027-03-24', '2027-03-26', '2027-03-28'], NYK: ['2027-03-23', '2027-03-25'] };
+  const mk = (key, team, value, factor = 1) => ({ key, team, value, late_risk: { factor } });
+  const players = [mk('nyk', 'NYK', 5.0), mk('bos', 'BOS', 4.8), mk('vet', 'BOS', 4.9, 0.6)];
+  const { ranked, avgGames } = applyPlayoffWeight(players, { schedule, start: '2027-03-22', end: '2027-03-28', weight: 0.5 });
+  assert.equal(avgGames, 3);
+  // bos: 4 games vs avg 3 -> up. vet: same 4 games x 0.6 risk = 2.4 effective -> down, but still
+  // ahead of nyk's 2 games.
+  assert.deepEqual(ranked.map((p) => p.key), ['bos', 'vet', 'nyk']);
+  const byKey = Object.fromEntries(ranked.map((p) => [p.key, p.value]));
+  assert.ok(byKey.bos > 4.8 && byKey.vet < 4.9 && byKey.nyk < 5.0);
+  const off = applyPlayoffWeight([mk('a', 'BOS', 2), mk('b', 'NYK', 3)], { schedule, start: '2027-03-22', end: '2027-03-28', weight: 0 });
+  assert.deepEqual(off.ranked.map((p) => p.value), [3, 2]); // weight 0 leaves values alone
+});

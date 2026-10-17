@@ -382,3 +382,32 @@ def test_override_for_unknown_player_without_stats_is_ignored(raw, capsys):
     ps = by_name(project.build_projections(cfg()))
     assert "Misspelled Playr" not in ps
     assert "unknown player 'Misspelled Playr'" in capsys.readouterr().out
+
+
+def test_parse_schedule_keeps_regular_season_games_only():
+    payload = {"leagueSchedule": {"seasonYear": "2026-27", "gameDates": [
+        {"gameDate": "10/10/2026 00:00:00", "games": [
+            {"gameId": "0012600001", "gameDateEst": "2026-10-10T00:00:00Z",
+             "homeTeam": {"teamTricode": "BOS"}, "awayTeam": {"teamTricode": "NYK"}}]},
+        {"gameDate": "10/20/2026 00:00:00", "games": [
+            {"gameId": "0022600001", "gameDateEst": "2026-10-20T00:00:00Z",
+             "homeTeam": {"teamTricode": "DET"}, "awayTeam": {"teamTricode": "BOS"}},
+            {"gameId": "0022600002", "gameDateEst": "2026-10-20T00:00:00Z",
+             "homeTeam": {"teamTricode": "NYK"}, "awayTeam": {"teamTricode": "PHI"}}]},
+        {"gameDate": "12/09/2026 00:00:00", "games": [  # NBA Cup placeholder, teams not set yet
+            {"gameId": "0022600999", "gameDateEst": "2026-12-09T00:00:00Z",
+             "homeTeam": {"teamTricode": ""}, "awayTeam": {"teamTricode": ""}}]},
+    ]}}
+    assert scrape.parse_schedule(payload) == {
+        "DET": ["2026-10-20"], "BOS": ["2026-10-20"], "NYK": ["2026-10-20"], "PHI": ["2026-10-20"]}
+
+
+def test_late_season_risk():
+    tank = {"SAC"}
+    vet = project.late_season_risk({"team": "SAC", "age": 31, "gp": 70}, tank, 82)
+    kid = project.late_season_risk({"team": "SAC", "age": 21, "gp": 70}, tank, 82)
+    old = project.late_season_risk({"team": "BOS", "age": 36, "gp": 50}, tank, 82)
+    fine = project.late_season_risk({"team": "BOS", "age": 27, "gp": 75}, tank, 82)
+    assert vet["factor"] == 0.8 and kid["factor"] == 1.05
+    assert old["factor"] == round(0.85 * 0.9, 2) and len(old["reasons"]) == 2
+    assert fine == {"factor": 1.0, "reasons": []}

@@ -1,4 +1,4 @@
-import { CATS, DEFAULT_CATS, PRESETS, assignTiers, fitScore, needWeights, rankPlayers, tier } from './rank.js';
+import { CATS, DEFAULT_CATS, PRESETS, applyPlayoffWeight, assignTiers, fitScore, needWeights, playoffWindows, rankPlayers, tier } from './rank.js';
 
 const MULTS = [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 const STORE_KEY = 'fantasy-hoops-settings';
@@ -8,7 +8,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 const defaults = {
   cats: Object.fromEntries(Object.keys(CATS).map((k) => [k, { on: k in DEFAULT_CATS, mult: 1 }])),
   show: '200', mingp: '0', pos: '', team: '', owner: '', mode: 'avg', teams: '12', roster: '13',
-  gppen: '0.2', hideTaken: false, sort: 'value', asc: false, localTaken: [], localMine: [],
+  gppen: '0.2', powindow: '0', poweight: '0.5', hideTaken: false, sort: 'value', asc: false, localTaken: [], localMine: [],
 };
 let settings = loadSettings();
 let data = null;
@@ -76,7 +76,8 @@ function bindCategoryControls() {
 }
 
 const FILTERS = { 'f-show': 'show', 'f-mingp': 'mingp', 'f-pos': 'pos', 'f-team': 'team', 'f-owner': 'owner',
-  'f-mode': 'mode', 'f-teams': 'teams', 'f-roster': 'roster', 'f-gppen': 'gppen' };
+  'f-mode': 'mode', 'f-teams': 'teams', 'f-roster': 'roster', 'f-gppen': 'gppen',
+  'f-powindow': 'powindow', 'f-poweight': 'poweight' };
 
 function bindFilters() {
   for (const [id, key] of Object.entries(FILTERS)) {
@@ -123,6 +124,13 @@ async function load() {
 
   const teams = [...new Set(data.players.map((p) => p.team).filter(Boolean))].sort();
   fillSelect('f-team', teams.map((t) => [t, t]), 1);
+  const windows = playoffWindows(data.schedule || {});
+  const short = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  fillSelect('f-powindow', [
+    ...windows.map((w, i) => [String(i), `${short(w.start)} – ${short(w.end)}${i === 0 ? ' (final 3 wks)' : ''}`]),
+    ['off', windows.length ? 'Ignore' : 'Schedule not loaded'],
+  ], 0);
+  if (!windows.length) $('f-powindow').value = 'off';
 
   const lg = data.league;
   if (lg) {
@@ -208,6 +216,10 @@ function render() {
     cats, mode, poolSize: Number(settings.teams) * Number(settings.roster),
     gpPenalty: Number(settings.gppen), seasonGames: data.config.games_remaining,
   });
+  const win = playoffWindows(data.schedule || {})[Number(settings.powindow)];
+  const { avgGames } = applyPlayoffWeight(ranked, {
+    schedule: data.schedule || {}, start: win?.start, end: win?.end, weight: Number(settings.poweight),
+  });
   assignTiers(ranked);
   const weights = needWeights(ranked.filter(isMine), cats);
   if (weights) for (const p of ranked) p.fit = fitScore(p, cats, weights);
@@ -246,7 +258,7 @@ function render() {
     ['check', '✓', false], ['star', '★', false], ['rank', 'R#', true], ['tier', 'Tier', false], ['name', 'Player', true],
     ...(hasAdp ? [['adp', 'ADP', true], ['adpdiff', '+/-', true]] : []),
     ['pos', 'Pos', true], ['team', 'Team', true], ...(hasLeague ? [['owner', 'Owner', true]] : []),
-    ['gp', 'GP', true], ['mpg', 'MPG', true],
+    ['gp', 'GP', true], ['mpg', 'MPG', true], ...(win ? [['poGames', 'PO G', true]] : []),
     ...catKeys.map((k) => [k, CATS[k].label, true]), ['value', 'Total', true],
     ...(weights ? [['fit', 'Fit', true]] : []),
   ];
@@ -256,6 +268,7 @@ function render() {
     star: 'Mark as my pick: powers the Fit column and My team row',
     fit: 'Value weighted toward the categories your team is weakest in (punted categories excluded)',
     tier: 'Value tier: players in the same tier are close in value',
+    poGames: 'Games in your fantasy playoff weeks (league average shown in the tooltip)',
   };
   $('table').tHead.innerHTML = `<tr>${cols.map(([k, label, sortable]) => {
     const cls = settings.sort === k ? `sorted ${settings.asc ? 'asc' : ''}` : '';
@@ -277,6 +290,9 @@ function render() {
         ? `<span class="badge inj" title="Did not play in ${p.missed_seasons.map(seasonLabel).join(', ')}: projection uses older seasons, with fewer games and extra aging">MISSED ${p.missed_seasons.map(seasonLabel).join(', ')}</span>`
         : '',
       p.note ? `<span class="badge ovr" title="${esc(p.note)}">i</span>` : '',
+      (p.late_risk?.factor ?? 1) < 1
+        ? `<span class="badge inj" title="${esc(p.late_risk.reasons.join('\n'))}">PO RISK</span>`
+        : (p.late_risk?.factor ?? 1) > 1 ? `<span class="badge boost" title="${esc(p.late_risk.reasons.join('\n'))}">PO BOOST</span>` : '',
     ].join('');
     const diff = p.adp ? p.adp - p.rank : null;
     const cls = [isMine(p) ? 'mine' : '', isTaken(p) && !isMine(p) ? 'taken' : ''].join(' ');
@@ -293,6 +309,7 @@ function render() {
       ${hasLeague ? `<td class="owner">${esc(teamNames[p.owner] || '')}</td>` : ''}
       <td class="num">${p.gp}</td>
       <td class="num">${p.mpg.toFixed(1)}</td>
+      ${win ? `<td class="num z ${tier((p.poGames - avgGames) * 1.5)}" title="League average ${avgGames.toFixed(1)}">${p.poGames}</td>` : ''}
       ${catKeys.map((k) => `<td class="num z ${tier(p.z[k])}" title="z = ${p.z[k].toFixed(2)}">${cellFor(p, k, mode)}</td>`).join('')}
       <td class="num value">${p.value.toFixed(2)}</td>
       ${weights ? `<td class="num value">${p.fit.toFixed(2)}</td>` : ''}

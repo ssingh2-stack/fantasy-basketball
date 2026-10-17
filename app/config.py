@@ -16,6 +16,10 @@ DEFAULTS = {
     "season_games": 82,
     # Lower this during the season for rest-of-season projections.
     "games_remaining": 82,
+    # Teams likely to be out of contention by March, which tend to shut down veterans and give
+    # young players more minutes right when H2H fantasy playoffs happen. From 2026-27 preseason
+    # win totals (roughly 30 or fewer); revisit at the trade deadline.
+    "tank_teams": ["SAC", "BKN", "MIL", "CHI", "MEM", "LAC", "NOP"],
     "league": {
         "platform": "espn",  # "espn" or "yahoo"
         "league_id": "",

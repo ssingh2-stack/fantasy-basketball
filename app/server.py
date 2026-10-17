@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from .config import DATA_DIR, ROOT, load_config
 from .leagues import espn, yahoo
 from .project import OUT_PATH, write_projections
-from .scrape import fetch_all
+from .scrape import fetch_all, load_schedule
 
 LEAGUE_PATH = DATA_DIR / "league.json"
 # Hours between automatic data refreshes (in-season stats change daily); 0 disables.
@@ -109,6 +109,7 @@ def data():
                      "yahoo_configured": bool(cfg["yahoo"].get("client_id")),
                      "league_configured": league_configured(cfg) or league is not None,
                      "data_updated_at": status["updated_at"]}
+    out["schedule"] = load_schedule(cfg["season"])
     return out
 
 

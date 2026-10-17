@@ -79,6 +79,20 @@ update instantly in the browser.
 - **Team category strength** shows every fantasy team's category totals and league rank, for spotting punts and trade targets.
 - **+/-** is ADP minus our rank. Positive values mean the player goes later than we rank them (a value pick).
 
+## Built for H2H categories
+
+- **Use Averages + GP penalty** (the default). Each week is its own matchup, so per-game impact
+  matters most. Missed games still cost you, but you can stream a replacement, which is what the
+  20% penalty reflects. Totals mode is there for roto leagues.
+- **Fantasy playoffs**: the NBA schedule is downloaded on startup. Pick your league's playoff weeks
+  (default: the final 3 Mon-Sun weeks, Mar 22 - Apr 11, 2027). The **PO G** column shows each player's
+  team games in that window. **Playoff weight** (Light by default) shifts value toward players
+  who'll actually play then.
+- **Late-season risk** (`PO RISK` / `PO BOOST` badges, hover for reasons): veterans on likely lottery
+  teams (`tank_teams` in config) often get shut down by March, players 35+ rest more, and
+  injury-prone players miss more. Young players on lottery teams tend to get more late minutes.
+  These feed into the playoff weight.
+
 ## Connecting your league
 
 **ESPN** (`"platform": "espn"`): set `league_id`, the number in your league URL. For private

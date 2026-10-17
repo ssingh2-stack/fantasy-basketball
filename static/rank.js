@@ -147,3 +147,48 @@ export function assignTiers(ranked, { gap = 0.35, maxSize = 12 } = {}) {
   });
   return ranked;
 }
+
+// ---------- H2H fantasy playoffs ----------
+
+const DAY = 86400000;
+const toDate = (s) => new Date(`${s}T00:00:00Z`);
+const fmt = (d) => d.toISOString().slice(0, 10);
+
+/**
+ * Candidate 3-week (Mon-Sun) playoff windows, ending on the last Sunday of the regular season
+ * and one or two weeks earlier (leagues differ). Returns [{start, end}] as YYYY-MM-DD.
+ */
+export function playoffWindows(schedule, weeks = 3) {
+  const last = Object.values(schedule).flat().sort().at(-1);
+  if (!last) return [];
+  let end = toDate(last);
+  while (end.getUTCDay() !== 0) end = new Date(end.getTime() - DAY); // back up to a Sunday
+  return [0, 1, 2].map((shift) => {
+    const e = new Date(end.getTime() - shift * 7 * DAY);
+    return { start: fmt(new Date(e.getTime() - (weeks * 7 - 1) * DAY)), end: fmt(e) };
+  });
+}
+
+export function gamesInWindow(dates = [], start, end) {
+  return dates.filter((d) => d >= start && d <= end).length;
+}
+
+/**
+ * Shift value toward players who'll actually play during the fantasy playoffs: their team's
+ * games in the window, times their late-season availability (shutdowns, rest, injury risk).
+ * weight 0 = ignore, 1 = playoff games scale value fully. Re-sorts and re-ranks.
+ */
+export function applyPlayoffWeight(ranked, { schedule = {}, start, end, weight = 0 }) {
+  const teams = Object.keys(schedule);
+  const hasWindow = Boolean(start && end && teams.length);
+  const avg = hasWindow ? teams.reduce((s, t) => s + gamesInWindow(schedule[t], start, end), 0) / teams.length : 0;
+  for (const p of ranked) {
+    const factor = p.late_risk?.factor ?? 1;
+    p.poGames = hasWindow ? gamesInWindow(schedule[p.team], start, end) : null;
+    p.poRatio = (hasWindow && avg ? p.poGames / avg : 1) * factor;
+    if (weight > 0) p.value += weight * Math.abs(p.value) * (p.poRatio - 1);
+  }
+  ranked.sort((a, b) => b.value - a.value);
+  ranked.forEach((p, i) => { p.rank = i + 1; });
+  return { ranked, avgGames: avg };
+}

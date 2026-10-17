@@ -233,6 +233,27 @@ def apply_team_minutes(players: list[dict], games: int) -> None:
             p["mpg"] = new_mpg
 
 
+def late_season_risk(p: dict, tank_teams: set[str], games: int) -> dict:
+    """How likely a player is to be on the floor during H2H fantasy playoffs (late March to
+    early April) relative to the rest of the season. factor < 1 = risk, > 1 = late boost."""
+    factor, reasons = 1.0, []
+    age = p.get("age") or 0
+    if p.get("team") in tank_teams:
+        if age >= 29:
+            factor *= 0.8
+            reasons.append("Veteran on a likely lottery team: often shut down or traded by March")
+        elif p.get("rookie") or 0 < age <= 24:
+            factor *= 1.05
+            reasons.append("Young player on a likely lottery team: late-season minutes tend to grow")
+    if age >= 35:
+        factor *= 0.85
+        reasons.append("Age 35+: rest days are likely late in the season")
+    if p.get("gp", games) < games * 0.67:
+        factor *= 0.9
+        reasons.append("Injury-prone: projected to miss 27+ games")
+    return {"factor": round(max(0.6, factor), 2), "reasons": reasons}
+
+
 def finalize(p: dict) -> dict:
     p["treb"] = p["oreb"] + p["dreb"]
     p["fg_pct"] = p["fgm"] / p["fga"] if p["fga"] else 0.0
@@ -328,6 +349,9 @@ def build_projections(cfg: dict | None = None) -> list[dict]:
     keep = [p for p in players.values()
             if p.get("override") or ((p["last_season"] or 0) >= target - 2 and p["key"] not in free_agents)]
     apply_team_minutes(keep, cfg["games_remaining"])
+    tank_teams = set(cfg.get("tank_teams", []))
+    for p in keep:
+        p["late_risk"] = late_season_risk(p, tank_teams, cfg["games_remaining"])
     out = [finalize(p) for p in keep]
     out.sort(key=lambda p: -p["pts"])
     return out
