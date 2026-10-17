@@ -87,7 +87,9 @@ def fetch_season(season: int, force: bool = False) -> Path:
         print(f"  season {season} not available yet, skipping")
         return out
     resp.raise_for_status()
-    rows = parse_totals(resp.text)
+    # Basketball-Reference is UTF-8 but doesn't say so in its headers, so requests would
+    # guess Latin-1 and mangle names like Jokić.
+    rows = parse_totals(resp.content.decode("utf-8", errors="replace"))
     if not rows:
         print(f"  season {season} has no stats yet, skipping")
         return out

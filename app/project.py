@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 
 from .config import DATA_DIR, load_config
-from .names import norm_name, norm_team
+from .names import fix_mojibake, norm_name, norm_team
 from .scrape import RAW_DIR
 
 COUNTING = ["fgm", "fga", "fg3m", "fg3a", "ftm", "fta", "oreb", "dreb", "ast", "stl", "blk", "tov", "pts"]
@@ -61,6 +61,7 @@ def load_season(season: int) -> list[dict]:
     rows = []
     with path.open() as f:
         for r in csv.DictReader(f):
+            r["name"] = fix_mojibake(r["name"])  # files saved before the encoding fix
             for k in NUMERIC:
                 try:
                     r[k] = float(r[k]) if r[k] != "" else 0.0

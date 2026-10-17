@@ -6,7 +6,7 @@ import pytest
 
 from app import project, scrape
 from app.leagues import espn, yahoo
-from app.names import norm_name, norm_team
+from app.names import fix_mojibake, norm_name, norm_team
 from app.server import merge
 
 BBREF_HTML = """
@@ -34,6 +34,13 @@ def test_parse_totals_combines_traded_players():
     assert r["name"] == "Traded Guy"
     assert r["team"] == "BKN"  # last team, normalized from BRK
     assert r["min"] == "2400" and r["pts"] == "1350"
+
+
+def test_fix_mojibake():
+    assert fix_mojibake("Nikola Joki\u00c4\u0087") == "Nikola Jokić"
+    assert fix_mojibake("Luka Don\u00c4\u008di\u00c4\u0087") == "Luka Dončić"
+    assert fix_mojibake("Nikola Jokić") == "Nikola Jokić"  # already correct: unchanged
+    assert fix_mojibake("LeBron James") == "LeBron James"
 
 
 def test_name_and_team_normalization():

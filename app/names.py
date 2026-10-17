@@ -17,6 +17,14 @@ ALIASES = {
 }
 
 
+def fix_mojibake(s: str) -> str:
+    """Repair UTF-8 text that was decoded as Latin-1 (e.g. 'JokiÄ\x87' -> 'Jokić')."""
+    try:
+        return s.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return s
+
+
 def norm_name(name: str) -> str:
     s = unicodedata.normalize("NFKD", name or "").encode("ascii", "ignore").decode()
     s = s.lower().replace("*", "")
