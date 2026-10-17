@@ -79,6 +79,20 @@ update instantly in the browser.
 - **Team category strength** shows every fantasy team's category totals and league rank, for spotting punts and trade targets.
 - **+/-** is ADP minus our rank. Positive values mean the player goes later than we rank them (a value pick).
 
+## Checking the model (backtest)
+
+Open `/backtest` on the web app (or run `python -m app.cli backtest`). It projects the last finished
+season using only the three seasons before it, with no overrides or roster info, and compares
+against what actually happened:
+
+- **Per-game accuracy** for each stat vs. a naive baseline (repeat last season's numbers).
+- **Games-played accuracy**, counting a fully missed season as 0 games.
+- **9-cat ranking accuracy**: rank correlation, top-50 hit rate, and the biggest misses.
+- **Is each layer helping?** Reruns with the aging curve, regression, team minutes budget and
+  missed-season penalty switched off one at a time. A layer marked HURTS should be toned down.
+
+The first run downloads one extra season, so it takes a few seconds.
+
 ## Built for H2H categories
 
 - **Use Averages + GP penalty** (the default). Each week is its own matchup, so per-game impact
@@ -89,8 +103,9 @@ update instantly in the browser.
   team games in that window. **Playoff weight** (Light by default) shifts value toward players
   who'll actually play then.
 - **Late-season risk** (`PO RISK` / `PO BOOST` badges, hover for reasons): veterans on likely lottery
-  teams (`tank_teams` in config) often get shut down by March, players 35+ rest more, and
-  injury-prone players miss more. Young players on lottery teams tend to get more late minutes.
+  teams (`tank_teams` in config) often get shut down by March, and players 35+ rest more. Young
+  players on lottery teams tend to get more late minutes. General injury risk isn't counted here,
+  since projected games played and the GP penalty already cover it.
   These feed into the playoff weight.
 
 ## Connecting your league

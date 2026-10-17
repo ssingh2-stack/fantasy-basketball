@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -117,6 +117,14 @@ def league_configured(cfg: dict) -> bool:
     if cfg["league"]["platform"] == "yahoo":
         return bool(cfg["yahoo"].get("league_id"))
     return bool(cfg["league"].get("league_id"))
+
+
+@app.get("/backtest", response_class=PlainTextResponse)
+def backtest(season: int | None = None):
+    """Model accuracy on the last finished season. Downloads one extra season the first time."""
+    from .backtest import run
+    with build_lock:
+        return run(season)
 
 
 @app.post("/api/project")

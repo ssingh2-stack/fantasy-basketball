@@ -404,10 +404,21 @@ def test_parse_schedule_keeps_regular_season_games_only():
 
 def test_late_season_risk():
     tank = {"SAC"}
-    vet = project.late_season_risk({"team": "SAC", "age": 31, "gp": 70}, tank, 82)
-    kid = project.late_season_risk({"team": "SAC", "age": 21, "gp": 70}, tank, 82)
-    old = project.late_season_risk({"team": "BOS", "age": 36, "gp": 50}, tank, 82)
-    fine = project.late_season_risk({"team": "BOS", "age": 27, "gp": 75}, tank, 82)
+    vet = project.late_season_risk({"team": "SAC", "age": 31, "gp": 70}, tank)
+    kid = project.late_season_risk({"team": "SAC", "age": 21, "gp": 70}, tank)
+    old = project.late_season_risk({"team": "BOS", "age": 36, "gp": 50}, tank)
+    fragile = project.late_season_risk({"team": "BOS", "age": 27, "gp": 40}, tank)
     assert vet["factor"] == 0.8 and kid["factor"] == 1.05
-    assert old["factor"] == round(0.85 * 0.9, 2) and len(old["reasons"]) == 2
-    assert fine == {"factor": 1.0, "reasons": []}
+    assert old["factor"] == 0.85 and len(old["reasons"]) == 1
+    # Injury risk lives in projected GP + the GP penalty, so it isn't counted again here.
+    assert fragile == {"factor": 1.0, "reasons": []}
+
+
+def test_backtest_report(raw):
+    from app import backtest
+    out = backtest.run(2026, fetch=False)
+    for section in ("Per-game accuracy", "Games played", "9-cat per-game rankings", "Biggest misses",
+                    "without aging curve", "without team minutes budget"):
+        assert section in out, section
+    # Switching a layer off must not leak into later runs.
+    assert project.age_rate_mult(21) == 1.05 and project.MISSED_SEASON_WEIGHT == 0.5

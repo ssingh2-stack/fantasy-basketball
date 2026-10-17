@@ -233,7 +233,7 @@ def apply_team_minutes(players: list[dict], games: int) -> None:
             p["mpg"] = new_mpg
 
 
-def late_season_risk(p: dict, tank_teams: set[str], games: int) -> dict:
+def late_season_risk(p: dict, tank_teams: set[str]) -> dict:
     """How likely a player is to be on the floor during H2H fantasy playoffs (late March to
     early April) relative to the rest of the season. factor < 1 = risk, > 1 = late boost."""
     factor, reasons = 1.0, []
@@ -248,9 +248,8 @@ def late_season_risk(p: dict, tank_teams: set[str], games: int) -> dict:
     if age >= 35:
         factor *= 0.85
         reasons.append("Age 35+: rest days are likely late in the season")
-    if p.get("gp", games) < games * 0.67:
-        factor *= 0.9
-        reasons.append("Injury-prone: projected to miss 27+ games")
+    # General injury risk is deliberately not counted here: it's already in projected games
+    # played and the GP penalty. This only covers late-season shutdowns and rest.
     return {"factor": round(max(0.6, factor), 2), "reasons": reasons}
 
 
@@ -266,7 +265,7 @@ def finalize(p: dict) -> dict:
     return p
 
 
-def build_projections(cfg: dict | None = None) -> list[dict]:
+def build_projections(cfg: dict | None = None, use_overrides: bool = True) -> list[dict]:
     cfg = cfg or load_config()
     target = cfg["season"]
     seasons = list(zip(cfg["history"], cfg["history_weights"]))
@@ -327,7 +326,7 @@ def build_projections(cfg: dict | None = None) -> list[dict]:
             elif team != p["team"]:
                 p["prev_team"], p["team"] = p["team"], team
 
-    for o in load_overrides():
+    for o in (load_overrides() if use_overrides else []):
         key = norm_name(o.get("player", ""))
         if not key:
             continue
@@ -351,7 +350,7 @@ def build_projections(cfg: dict | None = None) -> list[dict]:
     apply_team_minutes(keep, cfg["games_remaining"])
     tank_teams = set(cfg.get("tank_teams", []))
     for p in keep:
-        p["late_risk"] = late_season_risk(p, tank_teams, cfg["games_remaining"])
+        p["late_risk"] = late_season_risk(p, tank_teams)
     out = [finalize(p) for p in keep]
     out.sort(key=lambda p: -p["pts"])
     return out
