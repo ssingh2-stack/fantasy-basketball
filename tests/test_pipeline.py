@@ -372,3 +372,13 @@ def test_team_under_budget_is_untouched():
     roster = [{**{c: 1.0 for c in project.COUNTING}, "name": "A", "team": "BOS", "mpg": 30, "gp": 82}]
     project.apply_team_minutes(roster, 82)
     assert roster[0]["mpg"] == 30
+
+
+def test_override_for_unknown_player_without_stats_is_ignored(raw, capsys):
+    (raw / "overrides.csv").write_text(
+        "player,team,pos,mpg,usage_mult,gp,games_out,fgm,fga,fg3m,fg3a,ftm,fta,oreb,dreb,ast,stl,blk,tov,pts,note\n"
+        "Misspelled Playr,LAL,,,1.1,,,,,,,,,,,,,,,,typo\n"
+    )
+    ps = by_name(project.build_projections(cfg()))
+    assert "Misspelled Playr" not in ps
+    assert "unknown player 'Misspelled Playr'" in capsys.readouterr().out

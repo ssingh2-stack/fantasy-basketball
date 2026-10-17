@@ -312,6 +312,9 @@ def build_projections(cfg: dict | None = None) -> list[dict]:
             continue
         if key in players:
             apply_override(players[key], o)
+        elif not (_num(o.get("mpg")) and _num(o.get("pts"))):
+            # No stat line to build from: most likely a name that doesn't match Basketball-Reference.
+            print(f"  override for unknown player {o['player']!r} ignored (check the spelling)")
         else:
             # New player (rookie, overseas signing): needs mpg + stats in the overrides row.
             p = {c: 0.0 for c in COUNTING}
