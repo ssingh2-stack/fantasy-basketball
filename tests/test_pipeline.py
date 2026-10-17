@@ -175,7 +175,7 @@ def test_override_scaling(raw):
     )
     ps = by_name(project.build_projections(cfg()))
     assert ps["Star Player"]["pts"] == pytest.approx(plain["pts"] * 1.1, rel=1e-3)
-    assert ps["Star Player"]["gp"] == plain["gp"] - 20
+    assert ps["Star Player"]["gp"] == round(plain["gp"] * (1 - 20 / 82))
     assert ps["Young Riser"]["mpg"] == 30
 
 
@@ -423,7 +423,7 @@ def test_backtest_report(raw):
         assert section in out, section
     # Switching a layer off must not leak into later runs.
     assert project.age_rate_mult(21) == 1.05 and project.MISSED_SEASON_WEIGHT == 0.5
-    assert project.MPG_RECENCY == [1.0, 0.15, 0.05] and project.PCT_REGRESSION["fg3"] == 600
+    assert project.MPG_RECENCY == [1.0, 0.3, 0.1] and project.PCT_REGRESSION["fg3"] == 150
 
 
 def test_minutes_lean_on_last_season(raw):
@@ -433,7 +433,7 @@ def test_minutes_lean_on_last_season(raw):
     rows = list(csv.DictReader((raw / "raw" / "totals_2025.csv").open()))
     write_season(raw / "raw", 2025, rows + [line("riser01", "Role Riser", "HOU", 22, 70, 70 * 14)])
     p = by_name(project.build_projections(cfg()))["Role Riser"]
-    assert p["mpg"] > 29  # three-season averaging would have put him near 25
+    assert p["mpg"] > 27  # three-season averaging would have put him near 25
 
 
 def test_rate_limit_stops_downloads(tmp_path, monkeypatch):

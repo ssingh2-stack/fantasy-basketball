@@ -82,8 +82,11 @@ export function rankPlayers(players, opts) {
         value += z[k] * cats[k];
       }
       if (mode === 'avg' && gpPenalty > 0) {
-        const missed = Math.max(0, 1 - (p.gp || 0) / seasonGames);
-        value -= gpPenalty * missed * Math.abs(value);
+        const share = Math.min(1, (p.gp || 0) / seasonGames);
+        value -= gpPenalty * (1 - share) * Math.abs(value);
+        // Below half a season, a roster spot spent waiting on him costs real weeks of production,
+        // so value shrinks in proportion (a 1-game player is worth ~nothing, not 80%).
+        if (share < 0.5 && value > 0) value *= share / 0.5;
       }
       return { ...p, z, value };
     });

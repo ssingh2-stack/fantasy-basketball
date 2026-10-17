@@ -97,3 +97,12 @@ test('playoff weight rewards playoff games and penalizes late-season risk', asyn
   const off = applyPlayoffWeight([mk('a', 'BOS', 2), mk('b', 'NYK', 3)], { schedule, start: '2027-03-22', end: '2027-03-28', weight: 0 });
   assert.deepEqual(off.ranked.map((p) => p.value), [3, 2]); // weight 0 leaves values alone
 });
+
+test('players projected for under half a season lose value steeply', () => {
+  const absent = { ...shooter, key: 'absent', gp: 10 };
+  const mid = { ...shooter, key: 'mid', gp: 45 };
+  const r = rankPlayers([...players, absent, mid], { cats: DEFAULT_CATS, poolSize: 30, gpPenalty: 0.2, seasonGames: 82 });
+  const v = (k) => r.find((p) => p.key === k).value;
+  assert.ok(v('absent') < v('shooter') * 0.25, `${v('absent')} vs ${v('shooter')}`);
+  assert.ok(v('mid') > v('shooter') * 0.85); // 45 of 82 games: only the ordinary penalty
+});

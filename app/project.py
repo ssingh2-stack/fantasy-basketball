@@ -27,18 +27,23 @@ NUMERIC = ["age", "g", "gs", "min"] + COUNTING
 VOLUME_REGRESSION = {"fga": 200, "fg3a": 200, "fta": 250, "oreb": 150, "dreb": 150,
                      "ast": 150, "stl": 350, "blk": 200, "tov": 250}
 # League-average attempts mixed into each shooting percentage. 3P% is the noisiest.
-PCT_REGRESSION = {"fg2": 250, "fg3": 600, "ft": 150}
+# Tuned on the 2025-26 backtest: a quarter of the textbook amounts keeps nearly all of the
+# FG%/FT% accuracy gain while ranking players almost as well as no regression at all.
+PCT_REGRESSION = {"fg2": 62, "fg3": 150, "ft": 38}
 TEAM_MINUTES = 240  # minutes per team per game (5 players x 48)
 MIN_MPG_SHARE = 0.6  # the minutes budget never cuts a player below 60% of his projection
 MPG_PRIOR = (20.0, 5)  # regress MPG toward 20 with the weight of 5 games
 # Minutes follow a player's current role, so they lean much harder on last season than the
 # per-minute stats do (backtest: 3-season-weighted minutes lost to "repeat last season" and
 # missed young players whose roles grew). Weights by recency of completed seasons played.
-MPG_RECENCY = [1.0, 0.15, 0.05]
+MPG_RECENCY = [1.0, 0.3, 0.1]
 GP_PRIOR_RATE = 0.85  # league-typical share of games played
 # A fully missed season (e.g. Achilles tear) counts as 0 games at this fraction of its normal
 # weight: a strong injury signal, but one lost year shouldn't sink the next one entirely.
 MISSED_SEASON_WEIGHT = 0.5
+# Availability history overstates next season's games: on the 2025-26 backtest the projected
+# top 150 were projected 64.8 games and played 56.1 (missed seasons counted as 0).
+GP_CALIBRATION = 0.87
 OVERRIDES_PATH = DATA_DIR / "overrides.csv"
 OUT_PATH = DATA_DIR / "projections.json"
 
@@ -152,7 +157,7 @@ def project_player(seasons: list[tuple[float, dict]], lg: dict, target_season: i
     else:
         avail = GP_PRIOR_RATE
     avail = 0.75 * avail + 0.25 * GP_PRIOR_RATE
-    gp = round(games_remaining * avail)
+    gp = round(games_remaining * avail * GP_CALIBRATION)
 
     mult = 1.0
     for a in ages:
@@ -178,7 +183,7 @@ def _num(v):
         return None
 
 
-def apply_override(p: dict, o: dict) -> None:
+def apply_override(p: dict, o: dict, games: int = 82) -> None:
     if o.get("team"):
         p["team"] = norm_team(o["team"])
     if o.get("pos"):
@@ -206,7 +211,10 @@ def apply_override(p: dict, o: dict) -> None:
         p["gp"] = gp
     out = _num(o.get("games_out"))
     if out:
-        p["gp"] = max(0, p.get("gp", 0) - out)
+        # Out N of the season's games: he plays his usual share of the games that remain.
+        # (Subtracting N from projected games double-counts, since that projection already
+        # assumes he misses some games.)
+        p["gp"] = p.get("gp", 0) * max(0.0, 1 - out / games)
     if o.get("note"):
         p["note"] = o["note"]
     p["override"] = True
@@ -342,7 +350,7 @@ def build_projections(cfg: dict | None = None, use_overrides: bool = True) -> li
         if not key:
             continue
         if key in players:
-            apply_override(players[key], o)
+            apply_override(players[key], o, cfg["games_remaining"])
         elif not (_num(o.get("mpg")) and _num(o.get("pts"))):
             # No stat line to build from: most likely a name that doesn't match Basketball-Reference.
             print(f"  override for unknown player {o['player']!r} ignored (check the spelling)")
@@ -352,7 +360,7 @@ def build_projections(cfg: dict | None = None, use_overrides: bool = True) -> li
             p.update(id=f"manual:{key}", name=o["player"], key=key, team="", pos="",
                      age=_num(o.get("age")) or 0, mpg=0.0, gp=cfg["games_remaining"] * GP_PRIOR_RATE,
                      seasons=[], last_season=None, rookie=True)
-            apply_override(p, o)
+            apply_override(p, o, cfg["games_remaining"])
             players[key] = p
 
     # Drop unsigned free agents and players who stopped playing long ago, unless overridden.
