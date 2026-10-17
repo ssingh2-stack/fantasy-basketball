@@ -51,3 +51,23 @@ test('tiers', () => {
   assert.equal(tier(0), 'avg');
   assert.equal(tier(-2), 'bad');
 });
+
+test('need weights favor my weak categories', async () => {
+  const { needWeights, fitScore } = await import('../static/rank.js');
+  const cats = { pts: 1, ast: 1, blk: 1 };
+  const mine = [{ z: { pts: 2, ast: 1.5, blk: -1 } }, { z: { pts: 1, ast: 1, blk: -0.5 } }];
+  const w = needWeights(mine, cats);
+  assert.ok(w.blk > 1 && w.pts < 1);
+  const shotBlocker = { z: { pts: 0, ast: 0, blk: 2 } };
+  const scorer = { z: { pts: 2, ast: 0, blk: 0 } };
+  assert.ok(fitScore(shotBlocker, cats, w) > fitScore(scorer, cats, w));
+  assert.equal(needWeights([], cats), null);
+});
+
+test('tiers break on value gaps and long runs', async () => {
+  const { assignTiers } = await import('../static/rank.js');
+  const players = [5, 4.9, 4.8, 4.0, 3.95, ...Array.from({ length: 15 }, (_, i) => 3.9 - i * 0.01)].map((value) => ({ value }));
+  assignTiers(players);
+  assert.deepEqual(players.slice(0, 5).map((p) => p.tier), [1, 1, 1, 2, 2]);
+  assert.equal(players.at(-1).tier, 3); // the long flat run is split after 12
+});

@@ -1,4 +1,4 @@
-import { CATS, DEFAULT_CATS, rankPlayers, tier } from './rank.js';
+import { CATS, DEFAULT_CATS, PRESETS, assignTiers, fitScore, needWeights, rankPlayers, tier } from './rank.js';
 
 const MULTS = [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 const STORE_KEY = 'fantasy-hoops-settings';
@@ -8,7 +8,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 const defaults = {
   cats: Object.fromEntries(Object.keys(CATS).map((k) => [k, { on: k in DEFAULT_CATS, mult: 1 }])),
   show: '200', mingp: '0', pos: '', team: '', owner: '', mode: 'avg', teams: '12', roster: '13',
-  gppen: '0.2', hideTaken: false, sort: 'value', asc: false, localTaken: [],
+  gppen: '0.2', hideTaken: false, sort: 'value', asc: false, localTaken: [], localMine: [],
 };
 let settings = loadSettings();
 let data = null;
@@ -42,12 +42,28 @@ async function api(path, method = 'GET', body) {
 
 // ---------- controls ----------
 
+function buildPresets() {
+  $('presets').innerHTML = Object.keys(PRESETS).map((name) => `<button type="button" data-preset="${esc(name)}">${esc(name)}</button>`).join('');
+  $('presets').addEventListener('click', (e) => {
+    const name = e.target.dataset.preset;
+    if (!name) return;
+    const off = new Set(PRESETS[name]);
+    for (const k of Object.keys(CATS)) settings.cats[k] = { on: k in DEFAULT_CATS && !off.has(k), mult: 1 };
+    saveSettings();
+    buildCategoryControls();
+    render();
+  });
+}
+
 function buildCategoryControls() {
   $('cats').innerHTML = Object.entries(CATS).map(([k, c]) => `
     <div class="cat ${settings.cats[k].on ? 'on' : ''}" data-cat="${k}">
       <label><input type="checkbox" ${settings.cats[k].on ? 'checked' : ''}> ${c.label}</label>
       <select>${MULTS.map((m) => `<option value="${m}" ${m === settings.cats[k].mult ? 'selected' : ''}>x${m}</option>`).join('')}</select>
     </div>`).join('');
+}
+
+function bindCategoryControls() {
   $('cats').addEventListener('change', (e) => {
     const box = e.target.closest('.cat');
     const k = box.dataset.cat;
@@ -145,8 +161,13 @@ function myTeamId() {
   return data.league?.teams.find((t) => t.mine)?.id;
 }
 
+function isMine(p) {
+  const mine = myTeamId();
+  return Boolean(mine && p.owner === mine) || settings.localMine.includes(p.key);
+}
+
 function isTaken(p) {
-  return Boolean(p.owner) || settings.localTaken.includes(p.key);
+  return Boolean(p.owner) || settings.localTaken.includes(p.key) || settings.localMine.includes(p.key);
 }
 
 function matchesPos(p, pos) {
@@ -187,6 +208,10 @@ function render() {
     cats, mode, poolSize: Number(settings.teams) * Number(settings.roster),
     gpPenalty: Number(settings.gppen), seasonGames: data.config.games_remaining,
   });
+  assignTiers(ranked);
+  const weights = needWeights(ranked.filter(isMine), cats);
+  if (weights) for (const p of ranked) p.fit = fitScore(p, cats, weights);
+  if (settings.sort === 'fit' && !weights) settings.sort = 'value';
 
   const mine = myTeamId();
   const q = $('f-search').value.trim().toLowerCase();
@@ -195,7 +220,7 @@ function render() {
     if (settings.pos && !matchesPos(p, settings.pos)) return false;
     if (settings.team && p.team !== settings.team) return false;
     if (settings.owner === '__avail' && isTaken(p)) return false;
-    if (settings.owner === '__mine' && p.owner !== mine) return false;
+    if (settings.owner === '__mine' && !isMine(p)) return false;
     if (settings.owner && !settings.owner.startsWith('__') && p.owner !== settings.owner) return false;
     if (settings.hideTaken && isTaken(p) && settings.owner !== '__mine') return false;
     if (q && !p.name.toLowerCase().includes(q)) return false;
@@ -218,18 +243,32 @@ function render() {
   const hasLeague = Boolean(data.league);
 
   const cols = [
-    ['check', '✓', false], ['rank', 'R#', true], ['name', 'Player', true],
+    ['check', '✓', false], ['star', '★', false], ['rank', 'R#', true], ['tier', 'Tier', false], ['name', 'Player', true],
     ...(hasAdp ? [['adp', 'ADP', true], ['adpdiff', '+/-', true]] : []),
     ['pos', 'Pos', true], ['team', 'Team', true], ...(hasLeague ? [['owner', 'Owner', true]] : []),
     ['gp', 'GP', true], ['mpg', 'MPG', true],
     ...catKeys.map((k) => [k, CATS[k].label, true]), ['value', 'Total', true],
+    ...(weights ? [['fit', 'Fit', true]] : []),
   ];
+  const titles = {
+    adpdiff: 'ADP minus our rank: positive = value pick',
+    check: 'Mark as taken by another team (for drafts the league sync has not caught up on)',
+    star: 'Mark as my pick: powers the Fit column and My team row',
+    fit: 'Value weighted toward the categories your team is weakest in (punted categories excluded)',
+    tier: 'Value tier: players in the same tier are close in value',
+  };
   $('table').tHead.innerHTML = `<tr>${cols.map(([k, label, sortable]) => {
     const cls = settings.sort === k ? `sorted ${settings.asc ? 'asc' : ''}` : '';
-    return `<th data-sort="${sortable ? k : ''}" class="${cls}" title="${k === 'adpdiff' ? 'ADP minus our rank: positive = value pick' : k === 'check' ? 'Mark as taken (for drafts the league sync has not caught up on)' : ''}">${label}</th>`;
+    return `<th data-sort="${sortable ? k : ''}" class="${cls}" title="${titles[k] || ''}">${label}</th>`;
   }).join('')}</tr>`;
 
+  // Tier divider rows only make sense in plain value order.
+  const showTierBreaks = settings.sort === 'value' && !settings.asc;
+  let lastTier = null;
   $('table').tBodies[0].innerHTML = rows.map((p) => {
+    const divider = showTierBreaks && p.tier !== lastTier
+      ? `<tr class="tier-break"><td colspan="${cols.length}">Tier ${p.tier}</td></tr>` : '';
+    lastTier = p.tier;
     const badges = [
       p.injury ? `<span class="badge inj" title="Injury status">${esc(p.injury)}</span>` : '',
       p.prev_team ? `<span class="badge new" title="Was on ${esc(p.prev_team)} last season">NEW</span>` : '',
@@ -240,10 +279,12 @@ function render() {
       p.note ? `<span class="badge ovr" title="${esc(p.note)}">i</span>` : '',
     ].join('');
     const diff = p.adp ? p.adp - p.rank : null;
-    const cls = [p.owner && p.owner === mine ? 'mine' : '', isTaken(p) ? 'taken' : ''].join(' ');
-    return `<tr class="${cls}" data-key="${esc(p.key)}">
-      <td class="check"><input type="checkbox" ${settings.localTaken.includes(p.key) ? 'checked' : ''} ${p.owner ? 'disabled' : ''}></td>
+    const cls = [isMine(p) ? 'mine' : '', isTaken(p) && !isMine(p) ? 'taken' : ''].join(' ');
+    return `${divider}<tr class="${cls}" data-key="${esc(p.key)}">
+      <td class="check"><input type="checkbox" data-mark="taken" ${settings.localTaken.includes(p.key) ? 'checked' : ''} ${p.owner ? 'disabled' : ''}></td>
+      <td class="check"><button type="button" class="star ${settings.localMine.includes(p.key) ? 'on' : ''}" data-mark="mine" ${p.owner ? 'disabled' : ''} aria-label="Mark as my pick">★</button></td>
       <td class="num">${p.rank}</td>
+      <td class="num">${p.tier}</td>
       <td class="name">${esc(p.name)}${badges}</td>
       ${hasAdp ? `<td class="num">${p.adp ? p.adp.toFixed(1) : '-'}</td>
         <td class="num adp-diff ${diff > 0 ? 'pos' : diff < 0 ? 'neg' : ''}">${diff === null ? '' : (diff > 0 ? '+' : '') + diff.toFixed(0)}</td>` : ''}
@@ -254,6 +295,7 @@ function render() {
       <td class="num">${p.mpg.toFixed(1)}</td>
       ${catKeys.map((k) => `<td class="num z ${tier(p.z[k])}" title="z = ${p.z[k].toFixed(2)}">${cellFor(p, k, mode)}</td>`).join('')}
       <td class="num value">${p.value.toFixed(2)}</td>
+      ${weights ? `<td class="num value">${p.fit.toFixed(2)}</td>` : ''}
     </tr>`;
   }).join('') || `<tr><td colspan="${cols.length}">No players match these filters.</td></tr>`;
 
@@ -263,12 +305,14 @@ function render() {
 // Category strength of every fantasy team: sum of its players' z-scores.
 function renderTeams(ranked, catKeys) {
   const el = $('my-team');
-  const lg = data.league;
-  const rostered = ranked.filter((p) => p.owner);
-  if (!lg || !rostered.length) { el.hidden = true; return; }
+  // Without a synced league, show just my own picks (marked with ★) as one team.
+  const lg = data.league || { teams: [{ id: '__local', name: 'My team', mine: true }] };
+  const ownerOf = (p) => (settings.localMine.includes(p.key) ? (myTeamId() || '__local') : p.owner);
+  const rostered = ranked.filter((p) => ownerOf(p));
+  if (!rostered.length) { el.hidden = true; return; }
   const sums = Object.fromEntries(lg.teams.map((t) => [t.id, { n: 0, value: 0, ...Object.fromEntries(catKeys.map((k) => [k, 0])) }]));
   for (const p of rostered) {
-    const s = sums[p.owner];
+    const s = sums[ownerOf(p)];
     if (!s) continue;
     s.n += 1;
     s.value += p.value;
@@ -282,17 +326,23 @@ function renderTeams(ranked, catKeys) {
     const sd = Math.sqrt(vals.reduce((a, v) => a + (v - mean) ** 2, 0) / vals.length) || 1;
     return [k, { mean, sd }];
   }));
-  const teamTier = (k, v) => tier((v - spread[k].mean) / spread[k].sd);
+  // With one team there's nothing to compare against, so color by average player z instead.
+  const teamTier = (k, v) => (lg.teams.length > 1
+    ? tier((v - spread[k].mean) / spread[k].sd)
+    : tier(v / Math.max(1, sums[lg.teams[0].id].n) * 1.5));
   const teams = [...lg.teams].sort((a, b) => sums[b.id].value - sums[a.id].value);
   el.hidden = false;
-  el.querySelector('summary').textContent = 'Team category strength (sum of player z-scores, rank in league)';
+  el.querySelector('summary').textContent = data.league
+    ? 'Team category strength (sum of player z-scores, rank in league)'
+    : `My team: ${sums.__local.n} picks (sum of z-scores per category)`;
+  if (!data.league) el.open = true;
   el.querySelector('.body').innerHTML = `
     <div class="table-wrap"><table><thead><tr><th>Team</th><th>Players</th>
       ${catKeys.map((k) => `<th>${CATS[k].label}</th>`).join('')}<th>Total</th></tr></thead><tbody>
       ${teams.map((t) => {
         const s = sums[t.id];
         return `<tr class="${t.mine ? 'mine' : ''}"><td class="name">${esc(t.name)}</td><td>${s.n}</td>
-          ${catKeys.map((k) => `<td class="z ${teamTier(k, s[k])}">${s[k].toFixed(1)} <span class="sub">#${rankIn(k, t.id)}</span></td>`).join('')}
+          ${catKeys.map((k) => `<td class="z ${teamTier(k, s[k])}">${s[k].toFixed(1)}${lg.teams.length > 1 ? ` <span class="sub">#${rankIn(k, t.id)}</span>` : ''}</td>`).join('')}
           <td class="value">${s.value.toFixed(1)}</td></tr>`;
       }).join('')}
     </tbody></table></div>`;
@@ -308,15 +358,21 @@ function bindTable() {
     saveSettings();
     render();
   });
-  $('table').tBodies[0].addEventListener('change', (e) => {
+  const toggleMark = (e) => {
+    const mark = e.target.dataset?.mark;
     const key = e.target.closest('tr')?.dataset.key;
-    if (!key) return;
-    const set = new Set(settings.localTaken);
-    if (e.target.checked) set.add(key); else set.delete(key);
-    settings.localTaken = [...set];
+    if (!mark || !key) return;
+    const list = mark === 'mine' ? 'localMine' : 'localTaken';
+    const other = mark === 'mine' ? 'localTaken' : 'localMine';
+    const set = new Set(settings[list]);
+    if (set.has(key)) set.delete(key); else set.add(key);
+    settings[list] = [...set];
+    settings[other] = settings[other].filter((k) => k !== key); // a player is mine or taken, not both
     saveSettings();
     render();
-  });
+  };
+  $('table').tBodies[0].addEventListener('change', toggleMark);
+  $('table').tBodies[0].addEventListener('click', (e) => { if (e.target.tagName === 'BUTTON') toggleMark(e); });
 }
 
 // ---------- actions ----------
@@ -333,6 +389,21 @@ async function syncLeague() {
 
 function bindActions() {
   $('btn-sync').addEventListener('click', () => withButton($('btn-sync'), syncLeague));
+  $('btn-best-fit').addEventListener('click', () => {
+    settings.sort = 'fit';
+    settings.asc = false;
+    settings.owner = '__avail';
+    $('f-owner').value = '__avail';
+    saveSettings();
+    render();
+  });
+  $('btn-clear-marks').addEventListener('click', () => {
+    if (!confirm('Clear all your ✓ and ★ marks?')) return;
+    settings.localTaken = [];
+    settings.localMine = [];
+    saveSettings();
+    render();
+  });
   $('btn-project').addEventListener('click', () => withButton($('btn-project'), async () => {
     await api('/api/project', 'POST');
     await load();
@@ -360,7 +431,9 @@ function bindActions() {
   });
 }
 
+buildPresets();
 buildCategoryControls();
+bindCategoryControls();
 bindFilters();
 bindTable();
 bindActions();

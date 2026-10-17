@@ -34,16 +34,26 @@ The server only re-downloads the in-progress season, so it will use the committe
 
 ## How projections work (`app/project.py`)
 
-1. **Per-minute rates** for every stat. The last 3 seasons are weighted 1.0 / 0.6 / 0.4.
-   Once games are played, the current season is blended in, and its weight grows with minutes played.
-2. **Regression**: 300 minutes of league-average play are mixed into each player's rates,
-   so small samples don't produce extreme projections.
-3. **Aging curve**: players 22 and under improve about 5% a year, 31 and older decline.
-   Minutes get an age adjustment too.
-4. **Minutes per game** come from the weighted history. **Games played** come from each
-   player's availability over the last 3 seasons, blended with the league norm (~85%).
-5. **Manual overrides** go in `data/overrides.csv`. Use them for trades, new roles, injuries
-   and rookies. Edit the file, then click **Rebuild projections**.
+1. **Per-minute rates** for volume stats (shot attempts, rebounds, assists, steals, ...). The last
+   3 seasons are weighted 1.0 / 0.6 / 0.4. Once games are played, the current season is blended in,
+   and its weight grows with minutes played.
+2. **Per-stat regression**: each rate is pulled toward league average by its own amount, so
+   noisy stats like steals are pulled harder than stable ones like rebounds. 2P%, 3P% and FT%
+   are regressed on attempts, so a hot 3-point season on low volume is tempered.
+3. **Aging curve**: players 22 and under improve about 5% a year, 31 and older decline. Minutes
+   get an age adjustment too, applied for every year since the player last played.
+4. **Minutes per game** come from the weighted history. **Games played** come from each player's
+   availability over the last 3 seasons, blended with the league norm (~85%). A fully missed
+   season (e.g. an Achilles tear) counts as zero games.
+5. **Current rosters**: every team's roster is pulled from Basketball-Reference, so offseason
+   trades and signings move players automatically (NEW badge) and unsigned free agents drop out.
+6. **Manual overrides** in `data/overrides.csv` cover new roles (usage changes), injuries and
+   rookies. They're seeded with researched 2026 offseason moves, opening-week injuries and the top
+   rookies. Edit the file and push (or click **Rebuild projections** locally). Rows for player names
+   that don't match are skipped with a warning in the logs.
+7. **Team minutes budget**: each team's projected minutes are fit into the 240 available per game.
+   Excess minutes come mostly from the bench, so adding a star squeezes the reserves more than the
+   other starters.
 
 When your league is synced, its data on current NBA teams, eligible positions, ADP and injury
 status is merged in. Players who changed teams get a **NEW** badge. Rostered rookies with no
@@ -58,8 +68,13 @@ update instantly in the browser.
 
 - **Averages vs Totals**: totals multiply by projected games played.
 - **GP penalty** (averages mode): reduces a player's value in proportion to games they're projected to miss.
-- **Owner filter / Hide taken**: see who's available. The ✓ column marks players taken in your draft
-  before the league sync catches up.
+- **Punt presets**: one click for common builds (punt FT%, punt FG%, bigs, guards, ...).
+- **Tiers**: players are grouped where value drops off sharply, so you can see when a run is ending.
+- **Draft marks**: ✓ marks a player taken by someone else, and ★ marks your own pick. Marks are
+  saved in your browser, so this works without connecting a league.
+- **Fit / Best for my team**: once you have ★ picks, the Fit column re-scores every player by how much
+  they help your weakest (non-punted) categories. **Best for my team** sorts available players by Fit.
+- **Owner filter / Hide taken**: see who's available.
 - **Live draft**: re-syncs the league every 30 seconds.
 - **Team category strength** shows every fantasy team's category totals and league rank, for spotting punts and trade targets.
 - **+/-** is ADP minus our rank. Positive values mean the player goes later than we rank them (a value pick).

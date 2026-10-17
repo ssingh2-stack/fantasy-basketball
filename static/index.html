@@ -57,13 +57,18 @@
     </div>
 
     <h2>Categories &amp; multipliers</h2>
+    <div class="presets" id="presets"></div>
     <div class="cats" id="cats"></div>
 
     <div class="legend">
       <span>Performance:</span>
       <span class="z elite">Elite</span><span class="z vgood">Very good</span><span class="z good">Good</span>
       <span class="z avg">Average</span><span class="z below">Below avg</span><span class="z bad">Not good</span>
-      <label class="toggle"><input type="checkbox" id="f-hide-taken"> Hide taken players</label>
+      <span class="legend-actions">
+        <button type="button" id="btn-best-fit" title="Available players sorted by fit for your ★ picks">Best for my team</button>
+        <button type="button" id="btn-clear-marks">Clear my marks</button>
+        <label class="toggle"><input type="checkbox" id="f-hide-taken"> Hide taken players</label>
+      </span>
     </div>
   </section>
 

@@ -46,7 +46,14 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 
 .legend { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; font-size: 12px; color: var(--muted); }
 .legend .z { padding: 2px 10px; border-radius: 10px; color: var(--text); }
-.legend .toggle { margin-left: auto; }
+.legend-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.presets button { font-size: 12px; padding: 4px 10px; border-radius: 14px; }
+tr.tier-break td { background: var(--panel); color: var(--accent); text-align: left; font-size: 11px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 12px; }
+button.star { background: none; border: none; padding: 0 4px; font-size: 16px; color: var(--muted); opacity: 0.5; }
+button.star.on { color: var(--accent); opacity: 1; }
+button.star:disabled { visibility: hidden; }
 
 .message { margin: 12px 16px; padding: 12px 16px; border-radius: 8px; background: #3a2a14; border: 1px solid var(--accent); }
 

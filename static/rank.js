@@ -103,3 +103,47 @@ export function tier(z) {
   if (z > -1.25) return 'below';
   return 'bad';
 }
+
+// One-click category setups. Each lists the categories turned off relative to a 9-cat league.
+export const PRESETS = {
+  'Standard 9-cat': [],
+  'Punt FT%': ['ft_pct'],
+  'Punt FG%': ['fg_pct'],
+  'Punt TO': ['tov'],
+  'Punt AST': ['ast'],
+  'Punt 3PM': ['fg3m'],
+  'Bigs (punt FT% + 3PM)': ['ft_pct', 'fg3m'],
+  'Guards (punt FG% + REB + BLK)': ['fg_pct', 'treb', 'blk'],
+};
+
+/**
+ * Per-category weights for "best fit for my team": categories where my roster is weak
+ * (relative to my other categories) weigh up to 1.5x, strong ones down to 0.5x.
+ * Returns null until I have at least one player.
+ */
+export function needWeights(myPlayers, cats) {
+  const keys = Object.keys(cats);
+  if (!myPlayers.length || !keys.length) return null;
+  const sums = keys.map((k) => myPlayers.reduce((s, p) => s + (p.z[k] || 0), 0));
+  const { mean, sd } = meanSd(sums);
+  return Object.fromEntries(keys.map((k, i) => [k, 1 - 0.5 * Math.tanh((sums[i] - mean) / sd)]));
+}
+
+export function fitScore(p, cats, weights) {
+  return Object.keys(cats).reduce((s, k) => s + cats[k] * weights[k] * (p.z[k] || 0), 0);
+}
+
+// Tier breaks wherever value drops sharply between consecutive players (or a tier gets long).
+export function assignTiers(ranked, { gap = 0.35, maxSize = 12 } = {}) {
+  let t = 1;
+  let size = 0;
+  ranked.forEach((p, i) => {
+    if (i > 0 && (ranked[i - 1].value - p.value >= gap || size >= maxSize)) {
+      t += 1;
+      size = 0;
+    }
+    p.tier = t;
+    size += 1;
+  });
+  return ranked;
+}
