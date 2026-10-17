@@ -74,13 +74,19 @@ def raw(tmp_path, monkeypatch):
         line("star01", "Star Player", "DEN", 29, 72, 2500, scale=1.6),
         line("young01", "Young Riser", "OKC", 21, 75, 1800, scale=1.1),
         line("cameo01", "Cameo Guy", "MIA", 26, 5, 40, scale=3.0),
+        line("healthy01", "Healthy Twin", "MIL", 35, 70, 2500, scale=1.6),
         line("hurt01", "Often Hurt", "LAL", 30, 30, 1000, scale=1.4),
     ])
     write_season(raw, 2025, filler + [
         line("star01", "Star Player", "DEN", 28, 74, 2600, scale=1.5),
         line("hurt01", "Often Hurt", "LAL", 29, 40, 1300, scale=1.4),
+        line("achilles01", "Achilles Vet", "MIL", 34, 70, 2500, scale=1.6),
+        line("healthy01", "Healthy Twin", "MIL", 34, 70, 2500, scale=1.6),
     ])
-    write_season(raw, 2024, filler + [line("gone01", "Retired Vet", "BOS", 38, 60, 1200)])
+    write_season(raw, 2024, filler + [
+        line("gone01", "Retired Vet", "BOS", 38, 60, 1200),
+        line("achilles01", "Achilles Vet", "MIL", 33, 73, 2600, scale=1.6),
+    ])
     return tmp_path
 
 
@@ -116,6 +122,18 @@ def test_injury_history_lowers_games(raw):
     ps = by_name(project.build_projections(cfg()))
     assert ps["Often Hurt"]["gp"] < ps["Star Player"]["gp"] - 15
     assert ps["Star Player"]["gp"] <= 82
+
+
+def test_missed_season_counts_against_player(raw):
+    """A star who sat out all of 2025-26 (like Lillard after his Achilles tear) should project
+    fewer games and more aging than an identical player who stayed healthy."""
+    ps = by_name(project.build_projections(cfg()))
+    hurt, healthy = ps["Achilles Vet"], ps["Healthy Twin"]
+    assert hurt["missed_seasons"] == [2026] and healthy["missed_seasons"] == []
+    assert hurt["age"] == 36 and healthy["age"] == 36
+    assert hurt["gp"] < 55 < healthy["gp"]
+    assert hurt["pts"] < healthy["pts"]  # two years of decline vs one, applied to the older sample
+    assert hurt["mpg"] < healthy["mpg"]
 
 
 def test_young_players_improve(raw):

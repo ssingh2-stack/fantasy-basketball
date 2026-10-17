@@ -22,6 +22,9 @@ NUMERIC = ["age", "g", "gs", "min"] + COUNTING
 REGRESSION_MIN = 300  # minutes of league-average play mixed into every rate
 MPG_PRIOR = (20.0, 5)  # regress MPG toward 20 with the weight of 5 games
 GP_PRIOR_RATE = 0.85  # league-typical share of games played
+# A fully missed season (e.g. Achilles tear) counts as 0 games at this fraction of its normal
+# weight: a strong injury signal, but one lost year shouldn't sink the next one entirely.
+MISSED_SEASON_WEIGHT = 0.5
 OVERRIDES_PATH = DATA_DIR / "overrides.csv"
 OUT_PATH = DATA_DIR / "projections.json"
 
@@ -74,8 +77,9 @@ def league_rates(rows: list[dict], min_minutes: float = 500) -> dict:
 
 
 def project_player(seasons: list[tuple[float, dict]], lg: dict, target_season: int,
-                   season_games: int, games_remaining: int) -> dict:
-    """seasons: list of (weight, row) newest first. Returns a per-game projection."""
+                   season_games: int, games_remaining: int, missed: list[float] = ()) -> dict:
+    """seasons: list of (weight, row) newest first; missed: weights of completed seasons
+    the player sat out entirely. Returns a per-game projection."""
     wmin = sum(w * r["min"] for w, r in seasons)
     rates = {
         c: (sum(w * r[c] for w, r in seasons) + REGRESSION_MIN * lg[c]) / (wmin + REGRESSION_MIN)
@@ -83,22 +87,30 @@ def project_player(seasons: list[tuple[float, dict]], lg: dict, target_season: i
     }
 
     latest_w, latest = seasons[0]
-    age = latest["age"] + (target_season - int(latest["season"])) if latest["age"] else 27
+    # Age every year since the player last played, not just one (matters after a missed season).
+    last_age = latest["age"] or 26
+    years = max(1, target_season - int(latest["season"]))
+    ages = [last_age + y for y in range(1, years + 1)]
+    age = ages[-1]
 
     wg = sum(w * r["g"] for w, r in seasons)
     mpg = (wmin + MPG_PRIOR[0] * MPG_PRIOR[1]) / (wg + MPG_PRIOR[1])
-    mpg = max(0.0, min(40.0, mpg + age_mpg_delta(age)))
+    mpg = max(0.0, min(40.0, mpg + sum(age_mpg_delta(a) for a in ages)))
 
     # Availability only from completed seasons, where a full season is `season_games`.
     done = [(w, r) for w, r in seasons if int(r["season"]) < target_season]
+    missed_w = [w * MISSED_SEASON_WEIGHT for w in missed]
     if done:
-        avail = sum(w * min(r["g"], season_games) for w, r in done) / sum(w * season_games for w, _ in done)
+        avail = sum(w * min(r["g"], season_games) for w, r in done) / (
+            sum(w * season_games for w, _ in done) + sum(missed_w) * season_games)
     else:
         avail = GP_PRIOR_RATE
     avail = 0.75 * avail + 0.25 * GP_PRIOR_RATE
     gp = round(games_remaining * avail)
 
-    mult = age_rate_mult(age)
+    mult = 1.0
+    for a in ages:
+        mult *= age_rate_mult(a)
     proj = {c: rates[c] * mpg * mult for c in COUNTING}
     proj.update(age=age, mpg=mpg, gp=gp)
     return proj
@@ -181,10 +193,12 @@ def build_projections(cfg: dict | None = None) -> list[dict]:
             w = 1.5 * top * min(1.0, r["min"] / 1000)
             by_player.setdefault(r["bbref_id"], []).append((w, r))
             meta[r["bbref_id"]] = r
+    loaded = set()
     for season, weight in seasons:
         rows = load_season(season)
         if not rows:
             continue
+        loaded.add(season)
         if lg is None:
             lg = league_rates(rows)
         for r in rows:
@@ -201,9 +215,14 @@ def build_projections(cfg: dict | None = None) -> list[dict]:
             continue
         hist.sort(key=lambda wr: -int(wr[1]["season"]))
         m = meta[pid]
-        p = project_player(hist, lg, target, cfg["season_games"], cfg["games_remaining"])
+        played = {int(r["season"]) for _, r in hist}
+        # Completed seasons after the player's first one in our window that he didn't play at all.
+        missed = [(s, w) for s, w in seasons if s in loaded and s > min(played) and s not in played]
+        p = project_player(hist, lg, target, cfg["season_games"], cfg["games_remaining"],
+                           missed=[w for _, w in missed])
         p.update(id=pid, name=m["name"], key=norm_name(m["name"]), team=m["team"], pos=m["pos"],
-                 seasons=[int(r["season"]) for _, r in hist], last_season=int(hist[0][1]["season"]))
+                 seasons=sorted(played, reverse=True), last_season=max(played),
+                 missed_seasons=[s for s, _ in missed])
         players[p["key"]] = p
 
     for o in load_overrides():

@@ -168,6 +168,8 @@ function cellFor(p, k, mode) {
   return (p[c.stat] * scale).toFixed(digits);
 }
 
+const seasonLabel = (s) => `${String(s - 1).slice(2)}-${String(s).slice(2)}`;
+
 function sortValue(p, key) {
   if (key in CATS) return p.z[key] ?? -99;
   if (key === 'adp') return p.adp ?? 999;
@@ -232,6 +234,9 @@ function render() {
       p.injury ? `<span class="badge inj" title="Injury status">${esc(p.injury)}</span>` : '',
       p.prev_team ? `<span class="badge new" title="Was on ${esc(p.prev_team)} last season">NEW</span>` : '',
       p.rookie ? '<span class="badge rookie">R</span>' : '',
+      (p.missed_seasons || []).length
+        ? `<span class="badge inj" title="Did not play in ${p.missed_seasons.map(seasonLabel).join(', ')}: projection uses older seasons, with fewer games and extra aging">MISSED ${p.missed_seasons.map(seasonLabel).join(', ')}</span>`
+        : '',
       p.note ? `<span class="badge ovr" title="${esc(p.note)}">i</span>` : '',
     ].join('');
     const diff = p.adp ? p.adp - p.rank : null;
