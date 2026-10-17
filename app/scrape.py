@@ -45,6 +45,21 @@ COLUMNS = ["bbref_id"] + list(FIELDS)
 MULTI_TEAM = {"TOT", "2TM", "3TM", "4TM", "5TM"}
 
 
+class RateLimited(Exception):
+    """Basketball-Reference answered 429: too many requests from this server."""
+
+
+RATE_LIMIT_MSG = ("Basketball-Reference is rate-limiting this server (too many requests, often from "
+                  "back-to-back deploys). The block usually lifts within an hour; the app retries on its next refresh.")
+
+
+def _get(url: str, timeout: int = 30) -> requests.Response:
+    resp = requests.get(url, headers=HEADERS, timeout=timeout)
+    if resp.status_code == 429:
+        raise RateLimited(RATE_LIMIT_MSG)
+    return resp
+
+
 def parse_totals(page: str) -> list[dict]:
     """Parse the totals table into one row per player (multi-team players are combined)."""
     tree = html.fromstring(page)
@@ -83,7 +98,7 @@ def fetch_season(season: int, force: bool = False) -> Path:
     if out.exists() and not force:
         print(f"  {out.name} already downloaded (use --force to refresh)")
         return out
-    resp = requests.get(URL.format(season=season), headers=HEADERS, timeout=30)
+    resp = _get(URL.format(season=season))
     if resp.status_code == 404:
         print(f"  season {season} not available yet, skipping")
         return out
@@ -109,6 +124,8 @@ def fetch_seasons(seasons: list[int], force: bool = False) -> None:
         print(f"Fetching {season - 1}-{str(season)[2:]} totals")
         try:
             fetch_season(season, force=force)
+        except RateLimited:
+            raise  # more requests would only extend the block
         except Exception as e:
             # Keep going: older seasons may already be on disk (or committed to the repo).
             print(f"  failed to fetch {season}: {e}")
@@ -146,9 +163,12 @@ def fetch_rosters(season: int) -> Path:
         if i:
             time.sleep(3.5)
         try:
-            resp = requests.get(ROSTER_URL.format(team=team, season=season), headers=HEADERS, timeout=30)
+            resp = _get(ROSTER_URL.format(team=team, season=season))
             resp.raise_for_status()
             players = parse_roster(resp.content.decode("utf-8", errors="replace"))
+        except RateLimited:
+            print(f"  {RATE_LIMIT_MSG}")
+            break
         except Exception as e:
             print(f"  failed to fetch {team} roster: {e}")
             continue
@@ -220,13 +240,22 @@ def load_schedule(season: int) -> dict[str, list[str]]:
     return json.loads(path.read_text()) if path.exists() else {}
 
 
-def fetch_all(cfg: dict, force: bool = False) -> None:
-    """Download the history seasons (cached), plus the in-progress season and current
-    rosters (always refreshed, since both change daily)."""
+def fetch_stats(cfg: dict, force: bool = False) -> None:
+    """Season totals: the history seasons (cached) and the in-progress season (always refreshed).
+    Raises RateLimited if Basketball-Reference blocks us."""
     if cfg.get("include_current_season"):
         fetch_seasons([cfg["season"]], force=True)
         time.sleep(4)
     fetch_seasons(cfg["history"], force=force)
-    time.sleep(4)
+
+
+def fetch_extras(cfg: dict) -> None:
+    """Current rosters (30 pages, ~2 minutes) and the NBA schedule."""
     fetch_rosters(cfg["season"])
     fetch_schedule(cfg["season"])
+
+
+def fetch_all(cfg: dict, force: bool = False) -> None:
+    fetch_stats(cfg, force=force)
+    time.sleep(4)
+    fetch_extras(cfg)

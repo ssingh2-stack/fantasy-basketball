@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from .config import DATA_DIR, ROOT, load_config
 from .leagues import espn, yahoo
 from .project import OUT_PATH, write_projections
-from .scrape import fetch_all, load_schedule
+from .scrape import RAW_DIR, RateLimited, fetch_extras, fetch_stats, load_schedule
 
 LEAGUE_PATH = DATA_DIR / "league.json"
 # Hours between automatic data refreshes (in-season stats change daily); 0 disables.
@@ -26,25 +26,46 @@ status = {"state": "idle", "message": "", "updated_at": None}
 
 
 def refresh_data() -> None:
-    """Download stats and rebuild projections, recording progress in `status`."""
+    """Download stats and rebuild projections, recording progress in `status`.
+
+    Two phases so rankings show up fast: season stats (a few pages) -> projections, then
+    rosters and schedule (~2 minutes) -> projections again with current teams.
+    """
     with build_lock:
-        status.update(state="building", message="Downloading stats from Basketball-Reference")
+        status.update(state="building", message="Downloading season stats from Basketball-Reference")
         try:
             cfg = load_config()
-            fetch_all(cfg)
+            try:
+                fetch_stats(cfg)
+            except RateLimited as e:
+                if not any(RAW_DIR.glob("totals_*.csv")):
+                    raise
+                print(f"  {e} Using the stats already on disk.")
             status["message"] = "Building projections"
             write_projections(cfg)
             status.update(state="ready", message="", updated_at=datetime.now(timezone.utc).isoformat())
+            fetch_extras(cfg)  # rankings are already live; this adds current rosters and the schedule
+            write_projections(cfg)
+            status["updated_at"] = datetime.now(timezone.utc).isoformat()
         except BaseException as e:  # SystemExit from the model when no data was downloaded
             traceback.print_exc()
-            status.update(state="error", message=f"Data refresh failed: {e}")
+            if not OUT_PATH.exists():
+                status.update(state="error", message=f"Data refresh failed: {e}")
+
+
+RETRY_MINUTES = 15  # after a failed refresh with nothing to show (e.g. rate-limited at startup)
 
 
 def refresh_loop() -> None:
     if not OUT_PATH.exists():
         refresh_data()
-    while REFRESH_HOURS > 0:
-        time.sleep(REFRESH_HOURS * 3600)
+    while True:
+        if status["state"] == "error":
+            time.sleep(RETRY_MINUTES * 60)
+        elif REFRESH_HOURS > 0:
+            time.sleep(REFRESH_HOURS * 3600)
+        else:
+            return
         refresh_data()
 
 
@@ -99,7 +120,7 @@ def data():
     if not OUT_PATH.exists():
         if status["state"] == "error":
             raise HTTPException(500, status["message"])
-        raise HTTPException(503, (status["message"] or "Preparing data") + ". This takes about a minute on first start.")
+        raise HTTPException(503, (status["message"] or "Preparing data") + ". This takes under a minute after a deploy.")
     projections = json.loads(OUT_PATH.read_text())
     league = json.loads(LEAGUE_PATH.read_text()) if LEAGUE_PATH.exists() else None
     out = merge(projections, league)

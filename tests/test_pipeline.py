@@ -434,3 +434,45 @@ def test_minutes_lean_on_last_season(raw):
     write_season(raw / "raw", 2025, rows + [line("riser01", "Role Riser", "HOU", 22, 70, 70 * 14)])
     p = by_name(project.build_projections(cfg()))["Role Riser"]
     assert p["mpg"] > 29  # three-season averaging would have put him near 25
+
+
+def test_rate_limit_stops_downloads(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_get(url, headers=None, timeout=None):
+        calls.append(url)
+        return FakeResp({}, status=429)
+
+    monkeypatch.setattr(scrape, "RAW_DIR", tmp_path)
+    monkeypatch.setattr(scrape.requests, "get", fake_get)
+    monkeypatch.setattr(scrape.time, "sleep", lambda s: None)
+    with pytest.raises(scrape.RateLimited):
+        scrape.fetch_seasons([2026, 2025, 2024])
+    assert len(calls) == 1  # stops at the first 429 instead of extending the block
+    calls.clear()
+    scrape.fetch_rosters(2027)
+    assert len(calls) == 1
+
+
+def test_refresh_shows_rankings_before_rosters(tmp_path, monkeypatch):
+    """Projections are written right after the season stats, before the slow roster fetch."""
+    from app import server
+    order = []
+    monkeypatch.setattr(server, "fetch_stats", lambda cfg: order.append("stats"))
+    monkeypatch.setattr(server, "write_projections", lambda cfg=None: order.append(f"project:{server.status['state']}"))
+    monkeypatch.setattr(server, "fetch_extras", lambda cfg: order.append(f"extras:{server.status['state']}"))
+    server.refresh_data()
+    assert order == ["stats", "project:building", "extras:ready", "project:ready"]
+
+
+def test_refresh_rate_limited_with_no_data_reports_error(tmp_path, monkeypatch):
+    from app import server
+
+    def blocked(cfg):
+        raise scrape.RateLimited(scrape.RATE_LIMIT_MSG)
+    monkeypatch.setattr(server, "fetch_stats", blocked)
+    monkeypatch.setattr(server, "RAW_DIR", tmp_path)
+    monkeypatch.setattr(server, "OUT_PATH", tmp_path / "projections.json")
+    server.refresh_data()
+    assert server.status["state"] == "error" and "rate-limiting" in server.status["message"]
+    server.status.update(state="idle", message="")
