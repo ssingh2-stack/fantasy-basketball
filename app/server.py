@@ -1,3 +1,4 @@
+import html
 import json
 import os
 import threading
@@ -7,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -119,12 +120,45 @@ def league_configured(cfg: dict) -> bool:
     return bool(cfg["league"].get("league_id"))
 
 
-@app.get("/backtest", response_class=PlainTextResponse)
-def backtest(season: int | None = None):
-    """Model accuracy on the last finished season. Downloads one extra season the first time."""
+backtest_job = {"state": "idle", "output": "", "started": 0.0}
+
+
+def run_backtest(season: int | None) -> None:
     from .backtest import run
-    with build_lock:
-        return run(season)
+    try:
+        with build_lock:  # wait for any data refresh, so we never read half-written files
+            backtest_job["state"] = "running"
+            backtest_job["output"] = run(season)
+        backtest_job["state"] = "done"
+    except BaseException as e:
+        traceback.print_exc()
+        backtest_job.update(state="error", output=f"Backtest failed: {e}")
+
+
+@app.get("/backtest", response_class=HTMLResponse)
+def backtest(season: int | None = None, rerun: bool = False):
+    """Model accuracy on the last finished season. Runs in the background (it can take a few
+    minutes right after a deploy, while stats download); this page reloads until it's done."""
+    job = backtest_job
+    if job["state"] in ("idle", "error") or (rerun and job["state"] == "done"):
+        job.update(state="queued", output="", started=time.time())
+        threading.Thread(target=run_backtest, args=(season,), daemon=True).start()
+    if job["state"] == "done":
+        return f"""<!doctype html><title>Backtest</title><meta name="viewport" content="width=device-width">
+<body style="background:#12151f;color:#e8ebf3;font-family:system-ui;padding:16px">
+<p><a style="color:#f08a24" href="/backtest?rerun=true">Run again</a> · <a style="color:#f08a24" href="/">Rankings</a></p>
+<pre style="white-space:pre-wrap;font-size:13px">{html.escape(job["output"])}</pre></body>"""
+    if job["state"] == "error":
+        body = html.escape(job["output"])
+        refresh = ""
+    else:
+        waiting = job["state"] == "queued" and status["state"] == "building"
+        body = ("Waiting for the stats download to finish: " + html.escape(status["message"] or "")
+                if waiting else "Running the backtest (downloading one extra season, then six model runs)")
+        body += f"... {int(time.time() - job['started'])}s so far. This page reloads by itself."
+        refresh = '<meta http-equiv="refresh" content="5">'
+    return f"""<!doctype html><title>Backtest</title>{refresh}<meta name="viewport" content="width=device-width">
+<body style="background:#12151f;color:#e8ebf3;font-family:system-ui;padding:16px"><p>{body}</p></body>"""
 
 
 @app.post("/api/project")
