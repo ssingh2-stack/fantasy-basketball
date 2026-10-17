@@ -47,7 +47,10 @@ MULTI_TEAM = {"TOT", "2TM", "3TM", "4TM", "5TM"}
 def parse_totals(page: str) -> list[dict]:
     """Parse the totals table into one row per player (multi-team players are combined)."""
     tree = html.fromstring(page)
-    table = tree.get_element_by_id("totals_stats")
+    try:
+        table = tree.get_element_by_id("totals_stats")
+    except KeyError:
+        return []  # season page exists but no games have been played yet
     players: dict[str, dict] = {}
     for tr in table.iter("tr"):
         cells = {c.get("data-stat"): c for c in tr if c.get("data-stat")}
@@ -85,6 +88,9 @@ def fetch_season(season: int, force: bool = False) -> Path:
         return out
     resp.raise_for_status()
     rows = parse_totals(resp.text)
+    if not rows:
+        print(f"  season {season} has no stats yet, skipping")
+        return out
     with out.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=COLUMNS)
         w.writeheader()
@@ -98,4 +104,16 @@ def fetch_seasons(seasons: list[int], force: bool = False) -> None:
         if i:
             time.sleep(4)
         print(f"Fetching {season - 1}-{str(season)[2:]} totals")
-        fetch_season(season, force=force)
+        try:
+            fetch_season(season, force=force)
+        except Exception as e:
+            # Keep going: older seasons may already be on disk (or committed to the repo).
+            print(f"  failed to fetch {season}: {e}")
+
+
+def fetch_all(cfg: dict, force: bool = False) -> None:
+    """Download the history seasons (cached) and the in-progress season (always refreshed)."""
+    if cfg.get("include_current_season"):
+        fetch_seasons([cfg["season"]], force=True)
+        time.sleep(4)
+    fetch_seasons(cfg["history"], force=force)

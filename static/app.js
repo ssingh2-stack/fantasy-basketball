@@ -36,7 +36,7 @@ async function api(path, method = 'GET', body) {
     method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body && JSON.stringify(body),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.detail || res.statusText);
+  if (!res.ok) throw Object.assign(new Error(json.detail || res.statusText), { status: res.status });
   return json;
 }
 
@@ -86,12 +86,24 @@ async function load() {
   try {
     data = await api('/api/data');
   } catch (e) {
-    showMessage(`<strong>No projections yet.</strong> ${esc(e.message)}`);
+    if (e.status === 503) {
+      // The server is still downloading stats and building projections.
+      showMessage(`<strong>Building projections…</strong> ${esc(e.message)}`);
+      setTimeout(load, 5000);
+    } else {
+      showMessage(`<strong>No projections yet.</strong> ${esc(e.message)}`);
+    }
     return;
   }
   showMessage('');
   $('season').textContent = `${data.config.season - 1}-${String(data.config.season).slice(2)}`;
-  $('btn-yahoo').hidden = !(data.config.platform === 'yahoo' && !data.config.yahoo_connected);
+  const leagueOn = data.config.league_configured;
+  $('btn-sync').hidden = !leagueOn;
+  $('auto-sync').parentElement.hidden = !leagueOn;
+  $('btn-yahoo').hidden = !(leagueOn && data.config.platform === 'yahoo' && !data.config.yahoo_connected);
+  if (!data.league && data.config.data_updated_at) {
+    $('league-status').textContent = `Stats updated ${new Date(data.config.data_updated_at).toLocaleString()}`;
+  }
 
   const teams = [...new Set(data.players.map((p) => p.team).filter(Boolean))].sort();
   fillSelect('f-team', teams.map((t) => [t, t]), 1);

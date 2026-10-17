@@ -17,6 +17,21 @@ python -m app.cli serve      # open http://localhost:8000
 
 Then click **Sync league**. Seasons are named by the year they end: `2027` = 2026-27.
 
+## Deploying (Railway)
+
+`railway.json` sets the start command (`python -m app.cli serve --host 0.0.0.0`, which listens on
+`$PORT`). Railway starts with an empty disk, so on boot the server downloads stats and builds
+projections in the background. The page says "Building projections…" for about a minute. Stats
+then refresh every 24 hours (`REFRESH_HOURS` env var, `0` to disable).
+
+League sync is optional. Its buttons stay hidden until a league is configured. On Railway, put
+settings in a `FANTASY_CONFIG` env var as JSON (same shape as `config.json`), e.g.
+`{"league": {"platform": "espn", "league_id": "12345"}}`.
+
+If Basketball-Reference blocks Railway's servers (check the deploy logs for `failed to fetch`),
+run `python -m app.cli fetch` on your own computer and commit the files in `data/raw/`.
+The server only re-downloads the in-progress season, so it will use the committed history.
+
 ## How projections work (`app/project.py`)
 
 1. **Per-minute rates** for every stat. The last 3 seasons are weighted 1.0 / 0.6 / 0.4.

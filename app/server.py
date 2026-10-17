@@ -1,4 +1,10 @@
 import json
+import os
+import threading
+import time
+import traceback
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -8,10 +14,47 @@ from pydantic import BaseModel
 from .config import DATA_DIR, ROOT, load_config
 from .leagues import espn, yahoo
 from .project import OUT_PATH, write_projections
+from .scrape import fetch_all
 
 LEAGUE_PATH = DATA_DIR / "league.json"
+# Hours between automatic data refreshes (in-season stats change daily); 0 disables.
+REFRESH_HOURS = float(os.environ.get("REFRESH_HOURS", 24))
 
-app = FastAPI(title="Fantasy Hoops")
+build_lock = threading.Lock()
+status = {"state": "idle", "message": "", "updated_at": None}
+
+
+def refresh_data() -> None:
+    """Download stats and rebuild projections, recording progress in `status`."""
+    with build_lock:
+        status.update(state="building", message="Downloading stats from Basketball-Reference")
+        try:
+            cfg = load_config()
+            fetch_all(cfg)
+            status["message"] = "Building projections"
+            write_projections(cfg)
+            status.update(state="ready", message="", updated_at=datetime.now(timezone.utc).isoformat())
+        except BaseException as e:  # SystemExit from the model when no data was downloaded
+            traceback.print_exc()
+            status.update(state="error", message=f"Data refresh failed: {e}")
+
+
+def refresh_loop() -> None:
+    if not OUT_PATH.exists():
+        refresh_data()
+    while REFRESH_HOURS > 0:
+        time.sleep(REFRESH_HOURS * 3600)
+        refresh_data()
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    # Hosts like Railway start with an empty disk, so build the data in the background.
+    threading.Thread(target=refresh_loop, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="Fantasy Hoops", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 
@@ -53,7 +96,9 @@ def merge(projections: list[dict], league: dict | None) -> dict:
 @app.get("/api/data")
 def data():
     if not OUT_PATH.exists():
-        raise HTTPException(404, "No projections yet. Run `python -m app.cli fetch` then `python -m app.cli project`.")
+        if status["state"] == "error":
+            raise HTTPException(500, status["message"])
+        raise HTTPException(503, (status["message"] or "Preparing data") + ". This takes about a minute on first start.")
     projections = json.loads(OUT_PATH.read_text())
     league = json.loads(LEAGUE_PATH.read_text()) if LEAGUE_PATH.exists() else None
     out = merge(projections, league)
@@ -61,14 +106,23 @@ def data():
     out["config"] = {"season": cfg["season"], "platform": cfg["league"]["platform"],
                      "games_remaining": cfg["games_remaining"],
                      "yahoo_connected": yahoo.is_connected(),
-                     "yahoo_configured": bool(cfg["yahoo"].get("client_id"))}
+                     "yahoo_configured": bool(cfg["yahoo"].get("client_id")),
+                     "league_configured": league_configured(cfg) or league is not None,
+                     "data_updated_at": status["updated_at"]}
     return out
+
+
+def league_configured(cfg: dict) -> bool:
+    if cfg["league"]["platform"] == "yahoo":
+        return bool(cfg["yahoo"].get("league_id"))
+    return bool(cfg["league"].get("league_id"))
 
 
 @app.post("/api/project")
 def rebuild():
     """Re-run the model (e.g. after editing data/overrides.csv)."""
-    write_projections()
+    with build_lock:
+        write_projections()
     return {"ok": True}
 
 

@@ -1,7 +1,6 @@
 __pycache__/
 .venv/
 config.json
-data/raw/
 data/projections.json
 data/league.json
 data/yahoo_token.json

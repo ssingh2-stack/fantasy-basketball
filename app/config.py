@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -26,9 +27,14 @@ DEFAULTS = {
 
 
 def load_config() -> dict:
+    """Defaults, then config.json, then the FANTASY_CONFIG env var (JSON, for hosts like Railway)."""
     cfg = json.loads(json.dumps(DEFAULTS))
+    layers = []
     if CONFIG_PATH.exists():
-        user = json.loads(CONFIG_PATH.read_text())
+        layers.append(json.loads(CONFIG_PATH.read_text()))
+    if os.environ.get("FANTASY_CONFIG"):
+        layers.append(json.loads(os.environ["FANTASY_CONFIG"]))
+    for user in layers:
         for k, v in user.items():
             if isinstance(v, dict) and isinstance(cfg.get(k), dict):
                 cfg[k].update(v)
