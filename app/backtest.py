@@ -14,25 +14,30 @@ from .project import build_projections, load_season
 from .scrape import fetch_seasons
 
 
+# Variants for "is each layer helping?": (label, module patches, config overrides).
+VARIANTS = [
+    ("without aging curve", {"age_rate_mult": lambda a: 1.0, "age_mpg_delta": lambda a: 0.0}, {}),
+    ("without volume regression", {"VOLUME_REGRESSION": {k: 1e-6 for k in project.VOLUME_REGRESSION}}, {}),
+    ("without percentage regression", {"PCT_REGRESSION": {k: 1e-6 for k in project.PCT_REGRESSION}}, {}),
+    ("with 3-season minutes (old)", {"MPG_RECENCY": None}, {}),
+    ("with last-season-only minutes", {"MPG_RECENCY": [1.0]}, {}),
+    ("with team minutes budget", {}, {"team_minutes_budget": True}),
+    ("without missed-season penalty", {"MISSED_SEASON_WEIGHT": 0.0}, {}),
+]
+
+
 @contextmanager
-def without(layer: str):
-    """Temporarily switch off one modeling layer to measure whether it helps."""
-    saved = {}
-    patches = {
-        "aging curve": {"age_rate_mult": lambda a: 1.0, "age_mpg_delta": lambda a: 0.0},
-        "regression to average": {"VOLUME_REGRESSION": {k: 1e-6 for k in project.VOLUME_REGRESSION},
-                                  "PCT_REGRESSION": {k: 1e-6 for k in project.PCT_REGRESSION}},
-        "team minutes budget": {"apply_team_minutes": lambda players, games: None},
-        "missed-season penalty": {"MISSED_SEASON_WEIGHT": 0.0},
-    }[layer]
+def patched(patches: dict):
+    """Temporarily replace model settings to measure whether a layer helps."""
+    saved = {name: getattr(project, name) for name in patches}
     for name, value in patches.items():
-        saved[name] = getattr(project, name)
         setattr(project, name, value)
     try:
         yield
     finally:
         for name, value in saved.items():
             setattr(project, name, value)
+
 
 STATS = ["pts", "treb", "ast", "stl", "blk", "fg3m", "tov", "fg_pct", "ft_pct", "mpg"]
 NINE_CAT = ["fg_pct", "ft_pct", "fg3m", "pts", "treb", "ast", "stl", "blk", "tov"]
@@ -139,6 +144,13 @@ def run(season: int | None = None, fetch: bool = True) -> str:
               f"  model MAE {sum(abs(x - y) for x, y in zip(gp_model, gp_actual)) / len(gp_ids):.1f} games, "
               f"baseline MAE {sum(abs(x - y) for x, y in zip(gp_base, gp_actual)) / len(gp_ids):.1f}, "
               f"model avg {sum(gp_model) / len(gp_ids):.1f} vs actual avg {sum(gp_actual) / len(gp_ids):.1f}"]
+    # The players you'd actually draft: the model's projected top 150 by 9-cat value.
+    proj_rank = ranks(nine_cat_values({i: projected[i] for i in gp_ids}))
+    drafted = [i for i in gp_ids if proj_rank[i] <= 150]
+    d_model = sum(projected[i]["gp"] for i in drafted) / len(drafted)
+    d_actual = sum(actual_rows[i]["g"] if i in actual_rows else 0 for i in drafted) / len(drafted)
+    lines.append(f"  projected top 150 only: model avg {d_model:.1f} vs actual avg {d_actual:.1f} "
+                 f"(calibration factor {d_actual / d_model:.2f})")
 
     # 9-cat rankings: does the projected order match how the season actually played out?
     act_val = nine_cat_values({i: actual[i] for i in sample})
@@ -164,12 +176,12 @@ def run(season: int | None = None, fetch: bool = True) -> str:
         keep = [i for i in top if i in vals]
         return corr([vals[i] for i in keep], [ar[i] for i in keep])
     full = rank_corr(projected)
-    lines += ["", "Is each layer helping? (9-cat rank correlation with that layer switched off)",
-              f"  {'full model':28} {full:.3f}"]
-    for layer in ["aging curve", "regression to average", "team minutes budget", "missed-season penalty"]:
-        with without(layer):
-            alt = {p["id"]: p for p in build_projections(bt_cfg, use_overrides=False)}
+    lines += ["", "Is each layer helping? (9-cat rank correlation for each variant; higher is better)",
+              f"  {'current model':34} {full:.3f}"]
+    for label, patches, cfg_over in VARIANTS:
+        with patched(patches):
+            alt = {p["id"]: p for p in build_projections({**bt_cfg, **cfg_over}, use_overrides=False)}
         score = rank_corr(alt)
-        verdict = "helps" if full > score + 0.005 else "HURTS" if score > full + 0.005 else "no effect"
-        lines.append(f"  {'without ' + layer:28} {score:.3f}  -> layer {verdict}")
+        better = "variant better" if score > full + 0.005 else "current better" if full > score + 0.005 else "no difference"
+        lines.append(f"  {label:34} {score:.3f}  -> {better}")
     return "\n".join(lines)

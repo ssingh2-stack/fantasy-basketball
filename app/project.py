@@ -31,6 +31,10 @@ PCT_REGRESSION = {"fg2": 250, "fg3": 600, "ft": 150}
 TEAM_MINUTES = 240  # minutes per team per game (5 players x 48)
 MIN_MPG_SHARE = 0.6  # the minutes budget never cuts a player below 60% of his projection
 MPG_PRIOR = (20.0, 5)  # regress MPG toward 20 with the weight of 5 games
+# Minutes follow a player's current role, so they lean much harder on last season than the
+# per-minute stats do (backtest: 3-season-weighted minutes lost to "repeat last season" and
+# missed young players whose roles grew). Weights by recency of completed seasons played.
+MPG_RECENCY = [1.0, 0.15, 0.05]
 GP_PRIOR_RATE = 0.85  # league-typical share of games played
 # A fully missed season (e.g. Achilles tear) counts as 0 games at this fraction of its normal
 # weight: a strong injury signal, but one lost year shouldn't sink the next one entirely.
@@ -118,7 +122,6 @@ def project_player(seasons: list[tuple[float, dict]], lg: dict, target_season: i
                    season_games: int, games_remaining: int, missed: list[float] = ()) -> dict:
     """seasons: list of (weight, row) newest first; missed: weights of completed seasons
     the player sat out entirely. Returns a per-game projection."""
-    wmin = sum(w * r["min"] for w, r in seasons)
     rates = regressed_rates(seasons, lg)
 
     latest_w, latest = seasons[0]
@@ -128,8 +131,16 @@ def project_player(seasons: list[tuple[float, dict]], lg: dict, target_season: i
     ages = [last_age + y for y in range(1, years + 1)]
     age = ages[-1]
 
-    wg = sum(w * r["g"] for w, r in seasons)
-    mpg = (wmin + MPG_PRIOR[0] * MPG_PRIOR[1]) / (wg + MPG_PRIOR[1])
+    if MPG_RECENCY is None:
+        mpg_seasons = seasons
+    else:
+        completed = [r for _, r in seasons if int(r["season"]) < target_season]
+        mpg_seasons = [(MPG_RECENCY[i] if i < len(MPG_RECENCY) else 0.0, r) for i, r in enumerate(completed)]
+        # The in-progress season keeps its own (minutes-based) weight.
+        mpg_seasons += [(w, r) for w, r in seasons if int(r["season"]) == target_season]
+    mw_min = sum(w * r["min"] for w, r in mpg_seasons)
+    mw_g = sum(w * r["g"] for w, r in mpg_seasons)
+    mpg = (mw_min + MPG_PRIOR[0] * MPG_PRIOR[1]) / (mw_g + MPG_PRIOR[1])
     mpg = max(0.0, min(40.0, mpg + sum(age_mpg_delta(a) for a in ages)))
 
     # Availability only from completed seasons, where a full season is `season_games`.
@@ -347,7 +358,8 @@ def build_projections(cfg: dict | None = None, use_overrides: bool = True) -> li
     # Drop unsigned free agents and players who stopped playing long ago, unless overridden.
     keep = [p for p in players.values()
             if p.get("override") or ((p["last_season"] or 0) >= target - 2 and p["key"] not in free_agents)]
-    apply_team_minutes(keep, cfg["games_remaining"])
+    if cfg.get("team_minutes_budget"):
+        apply_team_minutes(keep, cfg["games_remaining"])
     tank_teams = set(cfg.get("tank_teams", []))
     for p in keep:
         p["late_risk"] = late_season_risk(p, tank_teams)

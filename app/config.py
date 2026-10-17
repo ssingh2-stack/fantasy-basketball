@@ -20,6 +20,8 @@ DEFAULTS = {
     # young players more minutes right when H2H fantasy playoffs happen. From 2026-27 preseason
     # win totals (roughly 30 or fewer); revisit at the trade deadline.
     "tank_teams": ["SAC", "BKN", "MIL", "CHI", "MEM", "LAC", "NOP"],
+    # Fit each team's minutes into 240/game. Off: the 2025-26 backtest showed it hurt rankings.
+    "team_minutes_budget": False,
     "league": {
         "platform": "espn",  # "espn" or "yahoo"
         "league_id": "",

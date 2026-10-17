@@ -417,8 +417,20 @@ def test_late_season_risk():
 def test_backtest_report(raw):
     from app import backtest
     out = backtest.run(2026, fetch=False)
-    for section in ("Per-game accuracy", "Games played", "9-cat per-game rankings", "Biggest misses",
-                    "without aging curve", "without team minutes budget"):
+    for section in ("Per-game accuracy", "Games played", "projected top 150 only", "9-cat per-game rankings",
+                    "Biggest misses", "without aging curve", "without percentage regression",
+                    "with team minutes budget"):
         assert section in out, section
     # Switching a layer off must not leak into later runs.
     assert project.age_rate_mult(21) == 1.05 and project.MISSED_SEASON_WEIGHT == 0.5
+    assert project.MPG_RECENCY == [1.0, 0.15, 0.05] and project.PCT_REGRESSION["fg3"] == 600
+
+
+def test_minutes_lean_on_last_season(raw):
+    """A player whose role jumped last season should project near his new minutes."""
+    rows = list(csv.DictReader((raw / "raw" / "totals_2026.csv").open()))
+    write_season(raw / "raw", 2026, rows + [line("riser01", "Role Riser", "HOU", 23, 75, 75 * 32)])
+    rows = list(csv.DictReader((raw / "raw" / "totals_2025.csv").open()))
+    write_season(raw / "raw", 2025, rows + [line("riser01", "Role Riser", "HOU", 22, 70, 70 * 14)])
+    p = by_name(project.build_projections(cfg()))["Role Riser"]
+    assert p["mpg"] > 29  # three-season averaging would have put him near 25

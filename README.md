@@ -42,7 +42,8 @@ The server only re-downloads the in-progress season, so it will use the committe
    are regressed on attempts, so a hot 3-point season on low volume is tempered.
 3. **Aging curve**: players 22 and under improve about 5% a year, 31 and older decline. Minutes
    get an age adjustment too, applied for every year since the player last played.
-4. **Minutes per game** come from the weighted history. **Games played** come from each player's
+4. **Minutes per game** lean heavily on last season (weights 1.0 / 0.15 / 0.05), since minutes
+   follow a player's current role. **Games played** come from each player's
    availability over the last 3 seasons, blended with the league norm (~85%). A fully missed
    season (e.g. an Achilles tear) counts as zero games.
 5. **Current rosters**: every team's roster is pulled from Basketball-Reference, so offseason
@@ -51,9 +52,9 @@ The server only re-downloads the in-progress season, so it will use the committe
    rookies. They're seeded with researched 2026 offseason moves, opening-week injuries and the top
    rookies. Edit the file and push (or click **Rebuild projections** locally). Rows for player names
    that don't match are skipped with a warning in the logs.
-7. **Team minutes budget**: each team's projected minutes are fit into the 240 available per game.
-   Excess minutes come mostly from the bench, so adding a star squeezes the reserves more than the
-   other starters.
+7. **Team minutes budget** (off by default; `"team_minutes_budget": true` to enable): fits each
+   team's projected minutes into the 240 available per game. The 2025-26 backtest showed it hurt
+   rankings, so it stays off unless a future backtest says otherwise.
 
 When your league is synced, its data on current NBA teams, eligible positions, ADP and injury
 status is merged in. Players who changed teams get a **NEW** badge. Rostered rookies with no
@@ -88,8 +89,9 @@ against what actually happened:
 - **Per-game accuracy** for each stat vs. a naive baseline (repeat last season's numbers).
 - **Games-played accuracy**, counting a fully missed season as 0 games.
 - **9-cat ranking accuracy**: rank correlation, top-50 hit rate, and the biggest misses.
-- **Is each layer helping?** Reruns with the aging curve, regression, team minutes budget and
-  missed-season penalty switched off one at a time. A layer marked HURTS should be toned down.
+- **Is each layer helping?** Reruns with each modeling choice changed one at a time (aging curve,
+  volume regression, percentage regression, minutes weighting, team minutes budget, missed-season
+  penalty). A variant that scores better than the current model is a change worth making.
 
 The first run downloads one extra season, so it takes a few seconds.
 
